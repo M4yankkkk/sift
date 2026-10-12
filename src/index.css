@@ -180,6 +180,7 @@ body {
   flex: 1;
   overflow-y: auto;
   padding: 8px 10px;
+  scroll-padding: 6px 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -193,6 +194,7 @@ body {
 
 /* Single Result Item (Raycast Style) */
 .result-item {
+  scroll-margin: 6px 0;
   display: flex;
   align-items: center;
   justify-content: space-between;

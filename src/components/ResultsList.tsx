@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import type { SearchResultItem } from "../types/contract";
 import { FileText, FileCode, FileImage, File, SearchX, CornerDownLeft } from "lucide-react";
 
@@ -40,6 +40,20 @@ export const ResultsList: React.FC<ResultsListProps> = ({
   isLoading = false,
   withPreview = false,
 }) => {
+  const selectedItemRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (
+      selectedItemRef.current &&
+      typeof selectedItemRef.current.scrollIntoView === "function"
+    ) {
+      selectedItemRef.current.scrollIntoView({
+        block: "nearest",
+        inline: "nearest",
+      });
+    }
+  }, [selectedId, results]);
+
   if (isLoading) {
     return (
       <div className={`results-container ${withPreview ? "with-preview" : ""}`}>
@@ -71,6 +85,8 @@ export const ResultsList: React.FC<ResultsListProps> = ({
         return (
           <div
             key={item.id}
+            ref={isSelected ? selectedItemRef : null}
+            data-id={item.id}
             className={`result-item ${isSelected ? "selected" : ""}`}
             onClick={() => onSelect(item)}
           >
