@@ -141,11 +141,103 @@ pub fn scan_directory(root: &Path, exclusions: &[String]) -> Result<Vec<FileMeta
     Ok(files)
 }
 
+pub fn base64_encode(data: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as usize;
+        let b1 = if chunk.len() > 1 { chunk[1] as usize } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as usize } else { 0 };
+        let triple = (b0 << 16) | (b1 << 8) | b2;
+        out.push(TABLE[(triple >> 18) & 0x3F] as char);
+        out.push(TABLE[(triple >> 12) & 0x3F] as char);
+        if chunk.len() > 1 {
+            out.push(TABLE[(triple >> 6) & 0x3F] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(TABLE[triple & 0x3F] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
+pub fn get_image_mime(ext: &str) -> Option<&'static str> {
+    match ext.to_lowercase().as_str() {
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "png" => Some("image/png"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        "svg" => Some("image/svg+xml"),
+        "bmp" => Some("image/bmp"),
+        "ico" => Some("image/x-icon"),
+        _ => None,
+    }
+}
+
+fn extract_pdf_preview(path: &Path, max_bytes: usize) -> Option<String> {
+    use std::process::Command;
+    let output = Command::new("pdftotext")
+        .arg("-l")
+        .arg("5")
+        .arg("-q")
+        .arg(path)
+        .arg("-")
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !text.is_empty() {
+            let mut truncated = text;
+            if truncated.len() > max_bytes {
+                truncated.truncate(max_bytes);
+                truncated.push_str("\n\n[... preview truncated ...]");
+            }
+            return Some(truncated);
+        }
+    }
+    None
+}
+
 pub fn read_file_preview(path: &Path, max_bytes: usize) -> Result<String> {
     if !path.exists() {
         return Err(SiftError::PathNotFound(path.to_string_lossy().to_string()));
     }
 
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    // 1. Image preview: encode as base64 data URL
+    if let Some(mime) = get_image_mime(&ext) {
+        use std::io::Read;
+        let mut file = fs::File::open(path)?;
+        // Limit preview image size to 10MB to avoid excessive RAM usage
+        let max_img_bytes = 10 * 1024 * 1024;
+        let mut buffer = Vec::new();
+        let bytes_read = file.by_ref().take(max_img_bytes as u64).read_to_end(&mut buffer)?;
+        if bytes_read == 0 {
+            return Ok(String::new());
+        }
+        let b64 = base64_encode(&buffer);
+        return Ok(format!("data:{};base64,{}", mime, b64));
+    }
+
+    // 2. PDF preview: extract readable text from first 5 pages
+    if ext == "pdf" {
+        if let Some(text) = extract_pdf_preview(path, max_bytes) {
+            return Ok(text);
+        }
+        return Ok("[PDF Document — Scanned or graphic document. Open with default viewer to read]".to_string());
+    }
+
+    // 3. Regular text/code/data file preview
     use std::io::Read;
     let mut file = fs::File::open(path)?;
     let mut buffer = vec![0u8; max_bytes];

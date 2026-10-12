@@ -157,14 +157,22 @@ pub async fn preview_result(
     let preview_content = sift_core::read_file_preview(path, 65536)
         .unwrap_or_else(|e| format!("[Preview error: {}]", e));
 
-    let mime_type = match file.extension.to_lowercase().as_str() {
+    let ext = file.extension.to_lowercase();
+    let mime_type = match ext.as_str() {
         "md" => "text/markdown",
-        "rs" | "ts" | "tsx" | "js" | "py" | "c" | "cpp" | "json" | "toml" | "yaml" | "yml" => {
-            "text/code"
-        }
+        "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "c" | "cpp" | "h" | "hpp" | "go" | "java"
+        | "html" | "css" | "scss" | "json" | "toml" | "yaml" | "yml" | "sh" | "bash" | "sql"
+        | "xml" => "text/code",
         "pdf" => "application/pdf",
-        "png" | "jpg" | "jpeg" => "image",
-        _ => "text/plain",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "bmp" => "image/bmp",
+        "ico" => "image/x-icon",
+        "txt" | "log" | "csv" | "tsv" => "text/plain",
+        _ => "application/octet-stream",
     };
 
     Ok(PreviewResponse {

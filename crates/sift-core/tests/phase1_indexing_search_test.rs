@@ -95,6 +95,14 @@ fn test_phase1_end_to_end_indexing_and_search() {
     let preview = read_file_preview(&notes_file_path, 4096).expect("read notes preview");
     assert!(preview.contains("Sift is a high-performance local desktop search utility"));
 
+    let img_file_path = fixtures.join("images").join("screenshot_error_404.png");
+    let img_preview = read_file_preview(&img_file_path, 4096).expect("read image preview");
+    assert!(img_preview.starts_with("data:image/png;base64,"));
+
+    let pdf_file_path = fixtures.join("documents").join("minimal_passage.pdf");
+    let pdf_preview = read_file_preview(&pdf_file_path, 4096).expect("read pdf preview");
+    assert!(pdf_preview.contains("Quantum indexing benchmark") || pdf_preview.contains("PDF Document"));
+
     let corrupt_file_path = fixtures.join("corrupted").join("corrupt_file.bin");
     let corrupt_preview =
         read_file_preview(&corrupt_file_path, 4096).expect("read corrupt preview");

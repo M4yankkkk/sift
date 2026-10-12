@@ -1,6 +1,14 @@
-import React from "react";
+import React, { useState } from "react";
 import type { PreviewResponse, SearchResultItem } from "../types/contract";
-import { ExternalLink, FolderOpen, FileQuestion, Sparkles } from "lucide-react";
+import {
+  ExternalLink,
+  FolderOpen,
+  FileQuestion,
+  Sparkles,
+  FileText,
+  Image as ImageIcon,
+  Binary,
+} from "lucide-react";
 import { SiftAPI } from "../services/tauriClient";
 
 interface PreviewPanelProps {
@@ -14,6 +22,8 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
   preview,
   isLoading = false,
 }) => {
+  const [imgDims, setImgDims] = useState<{ width: number; height: number } | null>(null);
+
   if (!item) {
     return (
       <div className="preview-container">
@@ -21,7 +31,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
           <FileQuestion size={28} className="empty-state-icon" />
           <div className="empty-title">Select a file to preview</div>
           <div className="empty-desc">
-            Use the arrow keys or click a search result to view details and code/text excerpts.
+            Use the arrow keys or click a search result to view details, images, or document excerpts.
           </div>
         </div>
       </div>
@@ -34,6 +44,171 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
 
   const handleReveal = () => {
     SiftAPI.revealResult(item.path);
+  };
+
+  const ext = item.extension.toLowerCase();
+  const isImage =
+    preview?.mime_type?.startsWith("image/") ||
+    preview?.preview_content?.startsWith("data:image/") ||
+    ["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "ico"].includes(ext);
+
+  const isPdf = ext === "pdf" || preview?.mime_type === "application/pdf";
+  const isBinaryContent =
+    preview?.preview_content === "[Binary content or unsupported encoding]";
+
+  const renderContent = () => {
+    if (isLoading) {
+      return (
+        <div className="preview-loading-state">
+          <div className="spinner-dot" />
+          <span>Loading preview...</span>
+        </div>
+      );
+    }
+
+    if (!preview) {
+      return (
+        <div className="binary-card">
+          <div className="binary-card-icon">
+            <Binary size={22} />
+          </div>
+          <div className="binary-card-title">Preview Unavailable</div>
+          <div className="binary-card-desc">
+            Could not read preview data for this file.
+          </div>
+          <button className="btn-open" onClick={handleOpen} style={{ marginTop: 8 }}>
+            <ExternalLink size={13} />
+            Open File (Enter)
+          </button>
+        </div>
+      );
+    }
+
+    // 1. Image Preview
+    if (isImage && preview.preview_content?.startsWith("data:image/")) {
+      return (
+        <div className="preview-image-container">
+          <div className="preview-image-viewport">
+            <img
+              src={preview.preview_content}
+              alt={item.filename}
+              className="preview-image-element"
+              onLoad={(e) => {
+                setImgDims({
+                  width: e.currentTarget.naturalWidth,
+                  height: e.currentTarget.naturalHeight,
+                });
+              }}
+            />
+          </div>
+          <div className="preview-image-meta">
+            <ImageIcon size={13} color="var(--accent-amber)" />
+            <span>
+              {imgDims ? `${imgDims.width} × ${imgDims.height} px • ` : ""}
+              {(item.size_bytes / 1024).toFixed(1)} KB • {item.extension.toUpperCase()}
+            </span>
+          </div>
+        </div>
+      );
+    }
+
+    // 2. PDF Document Preview
+    if (isPdf) {
+      const isScannedOrEmpty =
+        preview.preview_content.includes("Scanned or graphic document") ||
+        isBinaryContent ||
+        !preview.preview_content.trim();
+
+      if (isScannedOrEmpty) {
+        return (
+          <div className="binary-card">
+            <div className="binary-card-icon" style={{ color: "var(--accent-rose)", borderColor: "rgba(244, 63, 94, 0.3)", background: "rgba(244, 63, 94, 0.1)" }}>
+              <FileText size={24} />
+            </div>
+            <div className="binary-card-title">PDF Document</div>
+            <div className="binary-card-desc">
+              Visual or scanned PDF without an embedded text layer. Open in your system document viewer to read.
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+              <button className="btn-open" onClick={handleOpen}>
+                <ExternalLink size={13} />
+                Open PDF (Enter)
+              </button>
+              <button className="btn-reveal" onClick={handleReveal}>
+                <FolderOpen size={13} />
+                Reveal
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="pdf-preview-wrapper">
+          <div className="pdf-badge-header">
+            <FileText size={13} />
+            <span>PDF Document • Text Excerpt (Pages 1–5)</span>
+          </div>
+          <div className="preview-code-block">
+            {preview.preview_content}
+          </div>
+        </div>
+      );
+    }
+
+    // 3. Binary / Non-text File
+    if (isBinaryContent) {
+      return (
+        <div className="binary-card">
+          <div className="binary-card-icon">
+            <Binary size={22} />
+          </div>
+          <div className="binary-card-title">
+            Binary File ({item.extension.toUpperCase() || "RAW"})
+          </div>
+          <div className="binary-card-desc">
+            Binary stream without plain-text encoding. Open in its native application to view.
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+            <button className="btn-open" onClick={handleOpen}>
+              <ExternalLink size={13} />
+              Open File (Enter)
+            </button>
+            <button className="btn-reveal" onClick={handleReveal}>
+              <FolderOpen size={13} />
+              Reveal
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // 4. Text / Code / Markdown
+    const lines = preview.preview_content.split("\n");
+    const isCode = preview.mime_type === "text/code" || ["rs", "ts", "tsx", "js", "py", "json", "toml", "yaml"].includes(ext);
+
+    return (
+      <div className="preview-text-wrapper">
+        {isCode ? (
+          <div className="code-preview-layout">
+            <div className="code-gutter">
+              {lines.map((_, i) => (
+                <div key={i} className="gutter-line-number">
+                  {i + 1}
+                </div>
+              ))}
+            </div>
+            <div className="code-body">
+              {preview.preview_content}
+            </div>
+          </div>
+        ) : (
+          <div className="preview-code-block">
+            {preview.preview_content}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -89,18 +264,9 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
 
       {/* Preview Content Body */}
       <div className="preview-content-box">
-        {isLoading ? (
-          <div style={{ color: "var(--text-muted)", textAlign: "center", padding: 24 }}>
-            Loading preview...
-          </div>
-        ) : preview?.preview_content ? (
-          preview.preview_content
-        ) : (
-          <div style={{ color: "var(--text-muted)", fontStyle: "italic" }}>
-            Binary or non-text document. Use "Open" or "Reveal" to view in native viewer.
-          </div>
-        )}
+        {renderContent()}
       </div>
     </div>
   );
 };
+
