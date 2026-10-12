@@ -1,4 +1,3 @@
-use sift_core::models::AppSettings;
 use sift_core::storage::Database;
 use std::sync::Arc;
 
