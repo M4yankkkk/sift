@@ -2,6 +2,7 @@ pub mod error;
 pub mod models;
 pub mod scanner;
 pub mod storage;
+pub mod watcher;
 
 pub use error::{Result, SiftError};
 pub use models::*;
@@ -10,6 +11,7 @@ pub use scanner::{
     scan_directory, FileMeta, PathRuleChecker,
 };
 pub use storage::Database;
+pub use watcher::FileWatcher;
 
 /// Initializes structured logging using `tracing-subscriber`
 pub fn init_logging() {

@@ -23,3 +23,5 @@ uuid = { version = "1.11", features = ["v4", "serde"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 tempfile = "3.14"
 walkdir = "2.5"
+notify = "6.1"
+crossbeam-channel = "0.5"

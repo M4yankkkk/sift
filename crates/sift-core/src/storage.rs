@@ -384,6 +384,51 @@ impl Database {
             })?;
         Ok((total_roots, total_files))
     }
+
+    pub fn delete_file_by_path(&self, path: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        let affected = conn.execute("DELETE FROM files WHERE path = ?1", params![path])?;
+        Ok(affected > 0)
+    }
+
+    pub fn delete_files_under_path(&self, dir_prefix: &str) -> Result<usize> {
+        let conn = self.conn.lock().unwrap();
+        let pattern = format!("{}/%", dir_prefix.trim_end_matches('/'));
+        let affected = conn.execute("DELETE FROM files WHERE path LIKE ?1", params![pattern])?;
+        Ok(affected)
+    }
+
+    pub fn reconcile_root(&self, root_id: &str, current_file_paths: &[String]) -> Result<usize> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+
+        // Retrieve all known indexed paths for this root
+        let existing_paths: Vec<String> = {
+            let mut stmt = tx.prepare("SELECT path FROM files WHERE root_id = ?1")?;
+            let paths: Vec<String> = stmt
+                .query_map(params![root_id], |row| row.get(0))?
+                .filter_map(|r| r.ok())
+                .collect();
+            paths
+        };
+
+        let current_set: std::collections::HashSet<&str> =
+            current_file_paths.iter().map(|s| s.as_str()).collect();
+
+        let mut deleted_count = 0;
+        {
+            let mut del_stmt = tx.prepare("DELETE FROM files WHERE path = ?1")?;
+            for old_path in existing_paths {
+                if !current_set.contains(old_path.as_str()) {
+                    del_stmt.execute(params![old_path])?;
+                    deleted_count += 1;
+                }
+            }
+        }
+
+        tx.commit()?;
+        Ok(deleted_count)
+    }
 }
 
 #[cfg(test)]

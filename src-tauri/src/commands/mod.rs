@@ -60,6 +60,14 @@ fn spawn_scan_worker(
                     } else {
                         total_indexed += count;
                     }
+
+                    // Periodic/startup reconciliation: prune deleted files
+                    let active_paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
+                    if let Ok(pruned) = db.reconcile_root(&root.id, &active_paths) {
+                        if pruned > 0 {
+                            tracing::info!(pruned, root = %root.path, "Reconciled deleted files for root");
+                        }
+                    }
                 }
                 Err(e) => {
                     tracing::warn!("Error scanning directory {}: {}", root.path, e);
@@ -90,6 +98,7 @@ pub async fn add_root(path: String, state: State<'_, AppState>) -> Result<RootFo
     }
 
     let root = state.db.add_root(&path)?;
+    state.watch_root(&path);
 
     // Trigger asynchronous background scan for the new root
     spawn_scan_worker(
@@ -104,6 +113,7 @@ pub async fn add_root(path: String, state: State<'_, AppState>) -> Result<RootFo
 
 #[tauri::command]
 pub async fn remove_root(path: String, state: State<'_, AppState>) -> Result<bool> {
+    state.unwatch_root(&path);
     state.db.remove_root(&path)
 }
 

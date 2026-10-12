@@ -12,6 +12,10 @@ impl PathRuleChecker {
         Self { exclusions }
     }
 
+    pub fn exclusions(&self) -> &[String] {
+        &self.exclusions
+    }
+
     /// Evaluates if a path should be indexed based on default and user exclusions.
     /// Excludes hidden files, git metadata, caches, build artifacts, and handles symlinks.
     pub fn should_index_path(&self, path: &Path) -> bool {
@@ -20,11 +24,6 @@ impl PathRuleChecker {
 
     /// Evaluates if a path relative to an approved root should be indexed.
     pub fn should_index_relative(&self, root: Option<&Path>, path: &Path) -> bool {
-        // Must exist
-        if !path.exists() {
-            return false;
-        }
-
         // Avoid following symlinks to arbitrary directories (prevents traversal loops)
         if let Ok(metadata) = fs::symlink_metadata(path) {
             if metadata.file_type().is_symlink() {
@@ -143,11 +142,19 @@ pub fn scan_directory(root: &Path, exclusions: &[String]) -> Result<Vec<FileMeta
 
 pub fn base64_encode(data: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
         let b0 = chunk[0] as usize;
-        let b1 = if chunk.len() > 1 { chunk[1] as usize } else { 0 };
-        let b2 = if chunk.len() > 2 { chunk[2] as usize } else { 0 };
+        let b1 = if chunk.len() > 1 {
+            chunk[1] as usize
+        } else {
+            0
+        };
+        let b2 = if chunk.len() > 2 {
+            chunk[2] as usize
+        } else {
+            0
+        };
         let triple = (b0 << 16) | (b1 << 8) | b2;
         out.push(TABLE[(triple >> 18) & 0x3F] as char);
         out.push(TABLE[(triple >> 12) & 0x3F] as char);
@@ -242,7 +249,10 @@ pub fn read_file_preview(path: &Path, max_bytes: usize) -> Result<String> {
         // Limit preview image size to 10MB to avoid excessive RAM usage
         let max_img_bytes = 10 * 1024 * 1024;
         let mut buffer = Vec::new();
-        let bytes_read = file.by_ref().take(max_img_bytes as u64).read_to_end(&mut buffer)?;
+        let bytes_read = file
+            .by_ref()
+            .take(max_img_bytes as u64)
+            .read_to_end(&mut buffer)?;
         if bytes_read == 0 {
             return Ok(String::new());
         }
@@ -258,7 +268,10 @@ pub fn read_file_preview(path: &Path, max_bytes: usize) -> Result<String> {
         if let Some(text) = extract_pdf_preview(path, max_bytes) {
             return Ok(text);
         }
-        return Ok("[PDF Document — Scanned or graphic document. Open with default viewer to read]".to_string());
+        return Ok(
+            "[PDF Document — Scanned or graphic document. Open with default viewer to read]"
+                .to_string(),
+        );
     }
 
     // 3. Regular text/code/data file preview

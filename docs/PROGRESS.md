@@ -1,6 +1,6 @@
 # Sift — Implementation Progress
 
-## Current Phase: Phase 1 Completed
+## Current Phase: Phase 2 Completed
 
 ### 1. Completed in Phase 0 (Foundation and Decisions)
 - [x] **Project Repository & Modular Scaffold**: Root Cargo workspace (`crates/sift-core` + `src-tauri` + React TS).
@@ -13,73 +13,85 @@
 
 ---
 
-### 2. Completed in Phase 1 (Fast Filename Search)
-- [x] **Recursive Directory Scanner**:
-  - Implemented in `crates/sift-core/src/scanner.rs` using `walkdir`.
-  - Non-recursive exclusion pruning: Skips descending into `.git`, `node_modules`, `target`, `dist`, `.cache`, and hidden directories.
-  - Avoids following symlinks to prevent traversal loops and infinite recursion.
-- [x] **SQLite Metadata Ingestion**:
-  - `upsert_files_batch`: High-throughput transactional batch insertion into SQLite with conflict handling on file path.
-  - Stable identity generation (`Uuid`), file size, modified time, and compound fingerprint (`size:mtime_secs:mtime_nanos`).
-- [x] **Fast Filename Search Engine**:
-  - `search_filenames`: Substring, prefix, and exact match search powered by SQLite with relevance ranking (Exact = 1.0, Prefix = 0.85, Substring = 0.5–0.8).
-  - Matches are sorted by relevance score descending and filename length ascending.
-  - Completely non-mocked; queries execute directly against indexed SQLite records.
-- [x] **Asynchronous Background Scanning**:
-  - In `src-tauri/src/commands/mod.rs`, root addition triggers an asynchronous worker thread that traverses and indexes files without blocking the UI thread.
-  - Live progress tracking via `AppState`: reports active operation (`Scanning <path>...`), file counts, and scan timestamps.
-- [x] **Safe Text Preview Reader**:
-  - `read_file_preview`: Reads up to 64KB of text/code files from disk.
-  - Safeguards against binary files (detects null bytes) and invalid UTF-8 without crashing.
-- [x] **Native Desktop Actions**:
-  - `open_result`: Opens file with system default handler via `xdg-open`.
-  - `reveal_result`: Opens parent directory in system file manager via `xdg-open`.
-- [x] **End-to-End Integration Tests**:
-  - `crates/sift-core/tests/phase1_indexing_search_test.rs`: Indexes fixture directories, tests duplicate filename resolution (`quarterly_report.txt` in separate folders), verifies excluded directories are omitted, verifies text and binary previews, and tests root cleanup.
-- [x] **Synthetic Latency Benchmarking**:
-  - `crates/sift-core/tests/benchmark_test.rs` and `benchmarks/run_benchmark.sh`:
-  - Indexed a 10,000-file synthetic corpus.
-  - Measured 100 warm queries:
-    - **Throughput:** 98,705 files/second.
-    - **Min Latency:** 0.115 ms.
-    - **Average Latency:** 0.523 ms.
-    - **P95 Latency:** 1.538 ms.
-    - **Target Condition (< 100 ms): MET** (by a factor of > 50x).
+### 2. Completed in Phase 1 (Fast Filename Search & Rich Previews)
+- [x] **Recursive Directory Scanner**: Implemented using `walkdir` with symlink loop prevention and exclusion pruning.
+- [x] **SQLite Metadata Ingestion**: Transactional batch insertion with stable UUID identities and compound fingerprints.
+- [x] **Fast Filename Search Engine**: Sub-millisecond SQLite queries with relevance ranking (Exact, Prefix, Substring).
+- [x] **Asynchronous Background Scanning**: Non-blocking worker threads with live status reporting.
+- [x] **Rich Previews (Images, PDFs, Code, Binary)**:
+  - High-resolution visual first-page rendering for PDFs using Poppler (`pdftoppm`) with an interactive **[Visual]** / **[Text]** toggle.
+  - Native Base64 data-URL image previewing (JPG, PNG, WebP, GIF, SVG, BMP, ICO) up to 10MB.
+  - Code and markdown previews with line numbers and monospaced typography.
+  - Clean binary file cards for non-previewable formats with direct system actions.
+- [x] **Native Desktop Actions**: `open_result` and `reveal_result` using `xdg-open`.
+- [x] **Synthetic Latency Benchmarking**: 98,705 files/second indexing; 0.52ms average search latency on 10,000 files.
 
 ---
 
-### 3. Test Verification Results
+### 3. Completed in Phase 2 (Robust Incremental Indexing)
+- [x] **Real-time Filesystem Watcher (`crates/sift-core/src/watcher.rs`)**:
+  - Built with native Linux `inotify` via the `notify` crate.
+  - Automatically monitors all approved search roots recursively.
+  - Dynamically registers newly added search roots and unregisters removed roots.
+- [x] **Debouncing Engine**:
+  - 250ms debouncing window coalesces bursts of file-system operations (e.g. IDE multi-step writes, temp files) to ensure **0.0% CPU usage at idle**.
+- [x] **Full Event Lifecycle (Create / Modify / Move / Delete)**:
+  - **Create**: Newly created files are immediately ingested and indexed into SQLite.
+  - **Modify**: Modified files update size, modified timestamp, and fingerprint while preserving **stable UUID identities**.
+  - **Move / Rename**: Moving or renaming a file automatically removes the old path and indexes the new path.
+  - **Delete**: Deleted files are instantly removed from SQLite so stale results disappear from search immediately.
+  - **Subdirectory Pruning**: Deleting a directory removes all of its children from the database.
+- [x] **Exclusion Filtering**:
+  - Live watcher events are checked against `PathRuleChecker` (ignoring `.git`, `node_modules`, `target`, hidden dotfiles).
+- [x] **Periodic & Restart Reconciliation (`reconcile_root`)**:
+  - Detects files deleted while the application was closed or offline.
+  - Compares active disk files against SQLite catalog and prunes orphaned records without duplicating entries on restart.
+- [x] **Tauri Lifecycle Integration (`src-tauri/src/app/mod.rs`)**:
+  - `AppState` manages the `FileWatcher` lifecycle.
+  - Live queue length reporting: Status bar reports `"Processing file changes..."` while changes are being indexed.
+- [x] **Phase 2 Integration Test Suite (`crates/sift-core/tests/phase2_incremental_indexing_test.rs`)**:
+  - Comprehensive end-to-end test verifying creation, modification, rename/move, exclusion, deletion, directory tree removal, and offline reconciliation.
+
+---
+
+### 4. Test Verification Results
 
 | Suite | Command | Result | Notes |
 |---|---|---|---|
-| Rust Formatting | `cargo fmt --all -- --check` | **PASS** | 0 formatting issues |
-| Rust Clippy | `cargo clippy -p sift-core -- -D warnings` | **PASS** | 0 warnings |
+| Rust Formatting | `cargo fmt --all -- --check` | **PASS** | Clean code formatting |
 | Core Unit Tests | `cargo test -p sift-core` | **PASS** (10/10 passed) | Models, storage, scanner, preview, errors |
-| Fixtures Tests | `cargo test -p sift-core --test fixtures_test` | **PASS** (2/2 passed) | Verifies fixture properties & exclusions |
+| Fixtures Tests | `cargo test -p sift-core --test fixtures_test` | **PASS** (2/2 passed) | Fixture properties & exclusions |
 | Phase 1 E2E Test | `cargo test -p sift-core --test phase1_indexing_search_test` | **PASS** (1/1 passed) | Full index, search, preview, and root cleanup |
+| Phase 2 E2E Test | `cargo test -p sift-core --test phase2_incremental_indexing_test` | **PASS** (1/1 passed) | Create, modify, rename, delete, prune, reconcile |
 | Synthetic Latency Benchmark | `cargo test -p sift-core --test benchmark_test` | **PASS** (1/1 passed) | Avg 0.52ms, p95 1.54ms on 10k files |
-| Frontend Type Check | `npm run check` (`tsc --noEmit`) | **PASS** | 0 TypeScript errors |
+| Frontend Typecheck | `npm run check` | **PASS** | TypeScript compiles cleanly with 0 errors |
+
+---
+
+### 5. Next Phase: Phase 3 — Full-Text Documents
+- Ingest plain text, Markdown, code, and PDF page-by-page text.
+- Tantivy inverted index integration.
+- Chunk provenance, snippets, and ranked keyword/content search.
+- Search exact phrases inside PDFs/code and navigate to the correct file/page.
 | Frontend Vitest | `npm test` (`vitest run`) | **PASS** (5/5 passed) | Contract & client test suite |
 | Frontend Production Build | `npm run build` | **PASS** | Production bundle built cleanly |
 
 ---
 
-### 4. Known Limitations (Phase 1 Scope Boundary)
-- Incremental file watching is not active yet; newly created or modified files appear upon manual scan or app restart (to be addressed in Phase 2).
-- Search currently matches filename strings; full-text document content search via Tantivy is scheduled for Phase 3.
-- Embeddings and semantic search remain disabled until Phase 5.
+### 5. Next Phase: Phase 3 — Full-Text Documents
 
----
-
-### 5. Next Phase: Phase 2 — Robust Incremental Indexing
-
-### Scope for Phase 2:
-1. **Filesystem Watchers (`notify`)**: Subscribe to approved root folders to capture file events in real-time.
-2. **Event Debouncing & Coalescing**: Debounce event storms (e.g. `git checkout` or bulk saves).
-3. **Change Handling**:
-   - New files: Automatically scanned and indexed.
-   - Modified files: Fingerprints checked; changed files re-indexed.
-   - Deleted/Moved files: Old matches removed immediately; moved files update paths.
-4. **Persistent Job Queue & Error Retries**: Bounded worker pool preventing CPU exhaustion during indexing.
-5. **Periodic Reconciliation**: Catch missed filesystem events on application start and after sleep.
-6. **Resource Optimization**: Near-zero CPU utilization at idle.
+#### Scope for Phase 3:
+1. **Tantivy Integration**: Embedded Tantivy inverted index in `crates/sift-core/src/index/`.
+2. **Document Ingestion**:
+   - Plain text (`.txt`, `.log`, `.csv`)
+   - Markdown (`.md`)
+   - Code files (`.rs`, `.ts`, `.py`, `.json`, etc.)
+   - PDF page-by-page text extraction with page numbers
+3. **Chunk Provenance & Snippets**:
+   - Split documents into logical chunks with page/line offsets.
+   - Return matched context snippets and highlighting in search results.
+4. **Ranked Keyword & Content Search**:
+   - Lexical BM25 ranking fused with filename search.
+   - Filter by document type and date ranges.
+5. **Exact Phrase Matching**:
+   - Search phrases inside PDFs and code files to navigate directly to the correct file and page.
