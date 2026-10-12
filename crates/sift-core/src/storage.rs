@@ -1,5 +1,6 @@
 use crate::error::{Result, SiftError};
-use crate::models::{AppSettings, RootFolder};
+use crate::models::{AppSettings, FileRecord, MatchType, RootFolder, SearchResultItem};
+use crate::scanner::FileMeta;
 use chrono::Utc;
 use rusqlite::{params, Connection};
 use std::path::Path;
@@ -196,6 +197,193 @@ impl Database {
         )?;
         Ok(())
     }
+
+    pub fn upsert_files_batch(&self, root_id: &str, files: &[FileMeta]) -> Result<usize> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let now_str = Utc::now().to_rfc3339();
+        let mut count = 0;
+
+        {
+            let mut stmt = tx.prepare(
+                r#"
+                INSERT INTO files (
+                    id, root_id, path, filename, extension,
+                    size_bytes, modified_at, fingerprint, indexed_at, is_deleted
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0)
+                ON CONFLICT(path) DO UPDATE SET
+                    filename = excluded.filename,
+                    extension = excluded.extension,
+                    size_bytes = excluded.size_bytes,
+                    modified_at = excluded.modified_at,
+                    fingerprint = excluded.fingerprint,
+                    indexed_at = excluded.indexed_at,
+                    is_deleted = 0
+                "#,
+            )?;
+
+            for file in files {
+                let id = Uuid::new_v4().to_string();
+                let mtime_str = file.modified_at.to_rfc3339();
+                stmt.execute(params![
+                    id,
+                    root_id,
+                    file.path,
+                    file.filename,
+                    file.extension,
+                    file.size_bytes,
+                    mtime_str,
+                    file.fingerprint,
+                    now_str,
+                ])?;
+                count += 1;
+            }
+        }
+
+        tx.commit()?;
+        Ok(count)
+    }
+
+    pub fn search_filenames(&self, query: &str, limit: usize) -> Result<Vec<SearchResultItem>> {
+        let conn = self.conn.lock().unwrap();
+        let q_lower = query.trim().to_lowercase();
+        if q_lower.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let like_pattern = format!("%{}%", query.trim());
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, path, filename, extension, size_bytes, modified_at
+            FROM files
+            WHERE is_deleted = 0 AND filename LIKE ?1
+            LIMIT ?2
+            "#,
+        )?;
+
+        let rows = stmt.query_map(params![like_pattern, (limit * 2) as i64], |row| {
+            let id: String = row.get(0)?;
+            let path: String = row.get(1)?;
+            let filename: String = row.get(2)?;
+            let extension: String = row.get(3)?;
+            let size_bytes: i64 = row.get(4)?;
+            let modified_at_str: String = row.get(5)?;
+
+            let modified_at = chrono::DateTime::parse_from_rfc3339(&modified_at_str)
+                .map(|d| d.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now());
+
+            Ok((id, path, filename, extension, size_bytes, modified_at))
+        })?;
+
+        let mut results = Vec::new();
+        for r in rows {
+            let (id, path, filename, extension, size_bytes, modified_at) = r?;
+            let name_lower = filename.to_lowercase();
+
+            let (score, match_reasons) = if name_lower == q_lower {
+                (1.0, vec!["Exact filename match".to_string()])
+            } else if name_lower.starts_with(&q_lower) {
+                (0.85, vec!["Filename starts with query".to_string()])
+            } else if name_lower.contains(&q_lower) {
+                let ratio = q_lower.len() as f32 / name_lower.len().max(1) as f32;
+                (
+                    0.5 + 0.3 * ratio,
+                    vec!["Filename contains query".to_string()],
+                )
+            } else {
+                (0.3, vec!["Matched filename".to_string()])
+            };
+
+            results.push(SearchResultItem {
+                id,
+                path,
+                filename,
+                extension,
+                size_bytes,
+                modified_at,
+                score,
+                match_type: MatchType::Filename,
+                match_reasons,
+                snippet: None,
+                page_number: None,
+            });
+        }
+
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.filename.len().cmp(&b.filename.len()))
+        });
+
+        results.truncate(limit);
+        Ok(results)
+    }
+
+    pub fn get_file_by_id(&self, file_id: &str) -> Result<Option<FileRecord>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, root_id, path, filename, extension, size_bytes,
+                   modified_at, fingerprint, indexed_at, is_deleted
+            FROM files
+            WHERE id = ?1
+            "#,
+        )?;
+
+        let mut rows = stmt.query_map(params![file_id], |row| {
+            let id: String = row.get(0)?;
+            let root_id: String = row.get(1)?;
+            let path: String = row.get(2)?;
+            let filename: String = row.get(3)?;
+            let extension: String = row.get(4)?;
+            let size_bytes: i64 = row.get(5)?;
+            let modified_at_str: String = row.get(6)?;
+            let fingerprint: String = row.get(7)?;
+            let indexed_at_str: Option<String> = row.get(8)?;
+            let is_deleted: i32 = row.get(9)?;
+
+            let modified_at = chrono::DateTime::parse_from_rfc3339(&modified_at_str)
+                .map(|d| d.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now());
+
+            let indexed_at = indexed_at_str.and_then(|s| {
+                chrono::DateTime::parse_from_rfc3339(&s)
+                    .map(|d| d.with_timezone(&Utc))
+                    .ok()
+            });
+
+            Ok(FileRecord {
+                id,
+                root_id,
+                path,
+                filename,
+                extension,
+                size_bytes,
+                modified_at,
+                fingerprint,
+                indexed_at,
+                is_deleted: is_deleted != 0,
+            })
+        })?;
+
+        if let Some(r) = rows.next() {
+            Ok(Some(r?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn get_stats(&self) -> Result<(i64, i64)> {
+        let conn = self.conn.lock().unwrap();
+        let total_roots: i64 = conn.query_row("SELECT COUNT(*) FROM roots", [], |r| r.get(0))?;
+        let total_files: i64 =
+            conn.query_row("SELECT COUNT(*) FROM files WHERE is_deleted = 0", [], |r| {
+                r.get(0)
+            })?;
+        Ok((total_roots, total_files))
+    }
 }
 
 #[cfg(test)]
@@ -246,5 +434,66 @@ mod tests {
         let retrieved = db.get_settings().expect("get custom settings");
         assert_eq!(retrieved.global_shortcut, "Ctrl+Shift+F");
         assert_eq!(retrieved.max_file_size_mb, 50);
+    }
+
+    #[test]
+    fn test_batch_upsert_and_filename_search() {
+        let db = Database::open_in_memory().expect("in-memory db opens");
+        let root = db.add_root("/test/root").expect("add root");
+
+        let files = vec![
+            FileMeta {
+                path: "/test/root/quarterly_report.pdf".to_string(),
+                filename: "quarterly_report.pdf".to_string(),
+                extension: "pdf".to_string(),
+                size_bytes: 1024,
+                modified_at: Utc::now(),
+                fingerprint: "1024:100:0".to_string(),
+            },
+            FileMeta {
+                path: "/test/root/notes.txt".to_string(),
+                filename: "notes.txt".to_string(),
+                extension: "txt".to_string(),
+                size_bytes: 512,
+                modified_at: Utc::now(),
+                fingerprint: "512:100:0".to_string(),
+            },
+            FileMeta {
+                path: "/test/root/quarterly_summary.md".to_string(),
+                filename: "quarterly_summary.md".to_string(),
+                extension: "md".to_string(),
+                size_bytes: 256,
+                modified_at: Utc::now(),
+                fingerprint: "256:100:0".to_string(),
+            },
+        ];
+
+        let count = db
+            .upsert_files_batch(&root.id, &files)
+            .expect("upsert batch");
+        assert_eq!(count, 3);
+
+        let (r_count, f_count) = db.get_stats().expect("get stats");
+        assert_eq!(r_count, 1);
+        assert_eq!(f_count, 3);
+
+        // Search "quarterly" -> returns 2 items
+        let search_results = db
+            .search_filenames("quarterly", 10)
+            .expect("search filenames");
+        assert_eq!(search_results.len(), 2);
+        assert!(search_results[0].filename.contains("quarterly"));
+
+        // Exact match score check
+        let notes_results = db.search_filenames("notes.txt", 10).expect("search notes");
+        assert_eq!(notes_results.len(), 1);
+        assert_eq!(notes_results[0].score, 1.0);
+
+        // Lookup by ID
+        let file_rec = db
+            .get_file_by_id(&notes_results[0].id)
+            .expect("get file by id");
+        assert!(file_rec.is_some());
+        assert_eq!(file_rec.unwrap().filename, "notes.txt");
     }
 }

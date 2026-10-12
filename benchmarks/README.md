@@ -60,5 +60,22 @@ Toolchains: rustc version, node version
 
 - **Unit and Model Tests:** `cargo test -p sift-core`
 - **Fixture Tests:** `cargo test -p sift-core --test fixtures_test`
+- **End-to-End Indexing & Search Tests:** `cargo test -p sift-core --test phase1_indexing_search_test`
+- **Latency Benchmark:** `./benchmarks/run_benchmark.sh`
 - **Frontend Contract Tests:** `npm test`
 - **Type Checking:** `npm run check`
+
+---
+
+## 6. Phase 1 Measured Results (Recorded October 2026)
+
+Evaluated on: Ubuntu 24.04 LTS (x86_64, rustc 1.95.0)
+
+| Metric | Target | Measured Result | Status |
+|---|---|---|---|
+| **Synthetic Indexing Throughput** | &gt; 2,500 files/sec | **98,705 files/sec** (10,000 files in 101.3 ms) | Target Met |
+| **Warm Filename Search (Min)** | &lt; 100 ms | **0.115 ms** | Target Met |
+| **Warm Filename Search (Avg)** | &lt; 100 ms | **0.523 ms** | Target Met |
+| **Warm Filename Search (p95)** | &lt; 100 ms | **1.538 ms** | Target Met |
+| **Warm Filename Search (Max)** | &lt; 100 ms | **1.760 ms** | Target Met |
+

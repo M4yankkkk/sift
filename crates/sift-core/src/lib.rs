@@ -5,7 +5,9 @@ pub mod storage;
 
 pub use error::{Result, SiftError};
 pub use models::*;
-pub use scanner::{read_file_metadata, FileMeta, PathRuleChecker};
+pub use scanner::{
+    read_file_metadata, read_file_preview, scan_directory, FileMeta, PathRuleChecker,
+};
 pub use storage::Database;
 
 /// Initializes structured logging using `tracing-subscriber`

@@ -106,10 +106,71 @@ pub fn read_file_metadata(path: &Path) -> Result<FileMeta> {
     })
 }
 
+pub fn scan_directory(root: &Path, exclusions: &[String]) -> Result<Vec<FileMeta>> {
+    if !root.exists() {
+        return Err(SiftError::PathNotFound(root.to_string_lossy().to_string()));
+    }
+    if !root.is_dir() {
+        return Err(SiftError::NotADirectory(root.to_string_lossy().to_string()));
+    }
+
+    let checker = PathRuleChecker::new(exclusions.to_vec());
+    let mut files = Vec::new();
+
+    let walker = walkdir::WalkDir::new(root).follow_links(false).into_iter();
+
+    for entry in walker.filter_entry(|e| {
+        let path = e.path();
+        if path == root {
+            return true;
+        }
+        checker.should_index_relative(Some(root), path)
+    }) {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        if entry.file_type().is_file() {
+            if let Ok(meta) = read_file_metadata(entry.path()) {
+                files.push(meta);
+            }
+        }
+    }
+
+    Ok(files)
+}
+
+pub fn read_file_preview(path: &Path, max_bytes: usize) -> Result<String> {
+    if !path.exists() {
+        return Err(SiftError::PathNotFound(path.to_string_lossy().to_string()));
+    }
+
+    use std::io::Read;
+    let mut file = fs::File::open(path)?;
+    let mut buffer = vec![0u8; max_bytes];
+    let bytes_read = file.read(&mut buffer)?;
+    buffer.truncate(bytes_read);
+
+    // Check if content appears binary (e.g. contains null bytes)
+    if buffer.contains(&0) {
+        return Ok("[Binary content or unsupported encoding]".to_string());
+    }
+
+    match String::from_utf8(buffer) {
+        Ok(text) => Ok(text),
+        Err(e) => {
+            let lossy = String::from_utf8_lossy(e.as_bytes()).to_string();
+            Ok(lossy)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs::File;
+    use std::io::Write;
     use tempfile::Builder;
 
     #[test]
@@ -161,5 +222,51 @@ mod tests {
         assert_eq!(meta.extension, "pdf");
         assert_eq!(meta.size_bytes, 0);
         assert!(!meta.fingerprint.is_empty());
+    }
+
+    #[test]
+    fn test_scan_directory_recursive() {
+        let dir = Builder::new()
+            .prefix("sift_test_")
+            .tempdir()
+            .expect("tempdir");
+        let root = dir.path();
+
+        let sub_dir = root.join("src");
+        fs::create_dir_all(&sub_dir).expect("create subdir");
+        let file1 = sub_dir.join("main.rs");
+        File::create(&file1).expect("create main.rs");
+
+        let git_dir = root.join(".git");
+        fs::create_dir_all(&git_dir).expect("create .git");
+        let git_file = git_dir.join("index");
+        File::create(&git_file).expect("create git file");
+
+        let files = scan_directory(root, &[".git".to_string()]).expect("scan directory");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].filename, "main.rs");
+    }
+
+    #[test]
+    fn test_read_file_preview() {
+        let dir = Builder::new()
+            .prefix("sift_test_")
+            .tempdir()
+            .expect("tempdir");
+        let text_file = dir.path().join("hello.txt");
+        let mut f = File::create(&text_file).expect("create text file");
+        f.write_all(b"Hello Sift Search!").expect("write text");
+
+        let preview = read_file_preview(&text_file, 1024).expect("read preview");
+        assert_eq!(preview, "Hello Sift Search!");
+
+        let bin_file = dir.path().join("image.bin");
+        let mut f_bin = File::create(&bin_file).expect("create bin file");
+        f_bin
+            .write_all(&[0x00, 0xFF, 0x00, 0xAA])
+            .expect("write binary");
+
+        let bin_preview = read_file_preview(&bin_file, 1024).expect("read bin preview");
+        assert!(bin_preview.contains("Binary content"));
     }
 }
