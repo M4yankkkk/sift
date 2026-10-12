@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tauri::State;
 
-fn spawn_scan_worker(
+pub(crate) fn spawn_scan_worker(
     db: Arc<Database>,
     is_scanning: Arc<AtomicBool>,
     current_op: Arc<Mutex<Option<String>>>,

@@ -51,14 +51,24 @@ impl AppState {
             }
         };
 
-        Self {
-            db: db_arc,
+        let state = Self {
+            db: db_arc.clone(),
             is_scanning: Arc::new(AtomicBool::new(false)),
             current_operation: Arc::new(Mutex::new(None)),
             last_scan_completed_at: Arc::new(Mutex::new(None)),
             watcher,
             queue_length,
-        }
+        };
+
+        // Automatically discover new/modified files and reconcile on app startup
+        crate::commands::spawn_scan_worker(
+            db_arc,
+            state.is_scanning.clone(),
+            state.current_operation.clone(),
+            state.last_scan_completed_at.clone(),
+        );
+
+        state
     }
 
     pub fn watch_root(&self, path: &str) {

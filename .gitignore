@@ -25,7 +25,10 @@ Thumbs.db
 *.log
 
 # Sift data runtime files
-sift.db
-sift.db-wal
-sift.db-shm
+*.db
+*.db-wal
+*.db-shm
+**/sift.db*
+sift_tantivy_index/
+**/sift_tantivy_index/
 data/
