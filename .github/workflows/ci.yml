@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  rust-checks:
+    name: Rust Core Lint and Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy Linter
+        run: cargo clippy -p sift-core -- -D warnings
+
+      - name: Core Unit Tests
+        run: cargo test -p sift-core
+
+      - name: Fixtures Integration Tests
+        run: cargo test -p sift-core --test fixtures_test
+
+  frontend-checks:
+    name: Frontend Typecheck and Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: TypeScript Check
+        run: npm run check
+
+      - name: Vitest Tests
+        run: npm test
+
+      - name: Build Web Bundle
+        run: npm run build

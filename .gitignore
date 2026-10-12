@@ -1,0 +1,31 @@
+# Node & Frontend
+node_modules/
+dist/
+dist-ssr/
+*.local
+.npm
+
+# Rust & Tauri
+target/
+src-tauri/target/
+crates/**/target/
+Cargo.lock
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment & logs
+.env
+.env.*
+*.log
+
+# Sift data runtime files
+sift.db
+sift.db-wal
+sift.db-shm
+data/

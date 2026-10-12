@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/sift-core",
+    "src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Mayank Tiwari"]
+license = "MIT"
+repository = "https://github.com/mayank-tiwari/sift"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.11", features = ["v4", "serde"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+tempfile = "3.14"
