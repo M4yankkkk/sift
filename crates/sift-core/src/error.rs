@@ -32,6 +32,15 @@ pub enum SiftError {
 
     #[error("Configuration error: {0}")]
     Config(String),
+
+    #[error("Index error: {0}")]
+    Index(String),
+
+    #[error("Storage error: {0}")]
+    Storage(String),
+
+    #[error("Internal error: {0}")]
+    Internal(String),
 }
 
 // Ensure SiftError serializes to typed JSON object for Tauri IPC boundaries
@@ -55,6 +64,9 @@ impl Serialize for SiftError {
             SiftError::ResourceLimitExceeded(msg) => ("RESOURCE_LIMIT", msg.clone()),
             SiftError::Cancelled(msg) => ("CANCELLED", msg.clone()),
             SiftError::Config(msg) => ("CONFIG_ERROR", msg.clone()),
+            SiftError::Index(msg) => ("INDEX_ERROR", msg.clone()),
+            SiftError::Storage(msg) => ("STORAGE_ERROR", msg.clone()),
+            SiftError::Internal(msg) => ("INTERNAL_ERROR", msg.clone()),
         };
         state.serialize_field("code", code)?;
         state.serialize_field("message", &message)?;

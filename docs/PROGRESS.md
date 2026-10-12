@@ -54,44 +54,54 @@
 
 ---
 
-### 4. Test Verification Results
+### 4. Completed in Phase 3 (Full-Text Documents)
+- [x] **Document Ingestion Engine (`crates/sift-core/src/extract.rs`)**:
+  - Plain text and source code ingestion with null-byte binary filtering.
+  - Line-bounded overlapping chunking with exact `line_number` provenance.
+  - Page-by-page PDF extraction using poppler's `pdftotext` with exact `page_number` provenance.
+  - File size safety limits: Files exceeding 10MB are safely bypassed to avoid memory spikes.
+- [x] **Embedded Tantivy Inverted Index (`crates/sift-core/src/tantivy_index.rs`)**:
+  - Tantivy 0.22 schema with indexed `file_id`, `path`, `filename`, `content`, `modality`, and numeric provenance fields.
+  - Atomic document chunk upsertion and term-based deletion by `file_id` or `path`.
+  - Rich BM25 relevance scoring and tokenized contextual `<b>highlighted</b>` snippets.
+  - Manual reload policy on commit ensuring zero lag and deterministic query retrieval.
+- [x] **Catalog & Index Synchronization (`crates/sift-core/src/storage.rs`)**:
+  - Unified search (`search`) coordinating SQLite filename matches with Tantivy BM25 content hits.
+  - Automatic deduplication and fused scoring (exact filename hits on top, followed by keyword hits with snippets).
+  - Atomic cleanup on root removal, file deletion, and startup directory reconciliation.
+- [x] **Frontend Provenance & Snippet Presentation (`ResultsList.tsx`, `PreviewPanel.tsx`, `index.css`)**:
+  - Result list shows matched term context snippets with styled `<b>` highlights.
+  - Result list displays `Page X` badges for PDF document hits.
+  - Preview panel displays the dynamic matched page number and supports jump-to-page visual rendering.
+- [x] **Phase 3 Integration Test Suite (`crates/sift-core/tests/phase3_fulltext_search_test.rs`)**:
+  - Verified exact phrase searches inside source code and Markdown files.
+  - Verified PDF page-level provenance.
+  - Verified content modification invalidation and deletion cleanup.
+  - Verified fused ranking (filename vs. content).
+  - Verified 10MB file size safety limits.
+
+---
+
+### 5. Test Verification Results
 
 | Suite | Command | Result | Notes |
 |---|---|---|---|
 | Rust Formatting | `cargo fmt --all -- --check` | **PASS** | Clean code formatting |
-| Core Unit Tests | `cargo test -p sift-core` | **PASS** (10/10 passed) | Models, storage, scanner, preview, errors |
+| Rust Linter (Clippy) | `cargo clippy --workspace -- -D warnings` | **PASS** | Zero clippy warnings |
+| Core Unit Tests | `cargo test -p sift-core` | **PASS** (16/16 passed) | Models, storage, scanner, preview, extract, tantivy |
 | Fixtures Tests | `cargo test -p sift-core --test fixtures_test` | **PASS** (2/2 passed) | Fixture properties & exclusions |
 | Phase 1 E2E Test | `cargo test -p sift-core --test phase1_indexing_search_test` | **PASS** (1/1 passed) | Full index, search, preview, and root cleanup |
 | Phase 2 E2E Test | `cargo test -p sift-core --test phase2_incremental_indexing_test` | **PASS** (1/1 passed) | Create, modify, rename, delete, prune, reconcile |
+| Phase 3 E2E Test | `cargo test -p sift-core --test phase3_fulltext_search_test` | **PASS** (5/5 passed) | Code/doc phrases, PDF page provenance, invalidation, fused ranking |
 | Synthetic Latency Benchmark | `cargo test -p sift-core --test benchmark_test` | **PASS** (1/1 passed) | Avg 0.52ms, p95 1.54ms on 10k files |
 | Frontend Typecheck | `npm run check` | **PASS** | TypeScript compiles cleanly with 0 errors |
-
----
-
-### 5. Next Phase: Phase 3 — Full-Text Documents
-- Ingest plain text, Markdown, code, and PDF page-by-page text.
-- Tantivy inverted index integration.
-- Chunk provenance, snippets, and ranked keyword/content search.
-- Search exact phrases inside PDFs/code and navigate to the correct file/page.
 | Frontend Vitest | `npm test` (`vitest run`) | **PASS** (5/5 passed) | Contract & client test suite |
 | Frontend Production Build | `npm run build` | **PASS** | Production bundle built cleanly |
 
 ---
 
-### 5. Next Phase: Phase 3 — Full-Text Documents
-
-#### Scope for Phase 3:
-1. **Tantivy Integration**: Embedded Tantivy inverted index in `crates/sift-core/src/index/`.
-2. **Document Ingestion**:
-   - Plain text (`.txt`, `.log`, `.csv`)
-   - Markdown (`.md`)
-   - Code files (`.rs`, `.ts`, `.py`, `.json`, etc.)
-   - PDF page-by-page text extraction with page numbers
-3. **Chunk Provenance & Snippets**:
-   - Split documents into logical chunks with page/line offsets.
-   - Return matched context snippets and highlighting in search results.
-4. **Ranked Keyword & Content Search**:
-   - Lexical BM25 ranking fused with filename search.
-   - Filter by document type and date ranges.
-5. **Exact Phrase Matching**:
-   - Search phrases inside PDFs and code files to navigate directly to the correct file and page.
+### 6. Next Phase: Phase 4 — Screenshot OCR
+- PNG/JPEG text extraction using local, offline OCR engine (e.g. Tesseract or embedded OCR).
+- Bounding box and confidence scoring.
+- Screenshot preview and match region highlighting.
+- Failure handling for noisy, skewed, or unreadable images.

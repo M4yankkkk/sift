@@ -141,7 +141,7 @@ pub async fn search_files(
     let start = Instant::now();
     let limit = query.limit.unwrap_or(50);
 
-    let results = state.db.search_filenames(&query.query, limit)?;
+    let results = state.db.search(&query.query, limit)?;
     let total_matches = results.len();
     let execution_time_ms = start.elapsed().as_secs_f64() * 1000.0;
 
@@ -156,6 +156,7 @@ pub async fn search_files(
 #[tauri::command]
 pub async fn preview_result(
     file_id: String,
+    page: Option<i32>,
     state: State<'_, AppState>,
 ) -> Result<PreviewResponse> {
     let file = state
@@ -165,18 +166,20 @@ pub async fn preview_result(
 
     let path = Path::new(&file.path);
     let ext = file.extension.to_lowercase();
+    let target_page = page.unwrap_or(1).max(1) as u32;
+
     let (preview_content, snippet, page_number) = if ext == "pdf" {
-        let visual = sift_core::render_pdf_first_page(path);
-        let text = sift_core::extract_pdf_preview(path, 16384);
+        let visual = sift_core::render_pdf_page(path, target_page);
+        let text = sift_core::extract_pdf_page_preview(path, target_page, 16384);
         match (visual, text) {
-            (Some(v), Some(t)) => (v, Some(t), Some(1)),
-            (Some(v), None) => (v, None, Some(1)),
-            (None, Some(t)) => (t, None, Some(1)),
+            (Some(v), Some(t)) => (v, Some(t), Some(target_page as i32)),
+            (Some(v), None) => (v, None, Some(target_page as i32)),
+            (None, Some(t)) => (t, None, Some(target_page as i32)),
             (None, None) => (
                 "[PDF Document — Scanned or graphic document. Open with default viewer to read]"
                     .to_string(),
                 None,
-                Some(1),
+                Some(target_page as i32),
             ),
         }
     } else {

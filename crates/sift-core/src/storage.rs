@@ -7,16 +7,40 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
+use crate::extract::extract_document_chunks;
+use crate::tantivy_index::TantivySearchIndex;
+use std::collections::HashMap;
+
 #[derive(Clone)]
 pub struct Database {
     conn: Arc<Mutex<Connection>>,
+    pub text_index: Option<Arc<TantivySearchIndex>>,
 }
 
 impl Database {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let conn = Connection::open(path)?;
+        let conn = Connection::open(&path)?;
+        let index_dir = path
+            .as_ref()
+            .parent()
+            .unwrap_or_else(|| Path::new(""))
+            .join("sift_tantivy_index");
+
+        let text_index = match TantivySearchIndex::open_or_create(&index_dir) {
+            Ok(idx) => Some(Arc::new(idx)),
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to initialize Tantivy search index at {:?}: {}",
+                    index_dir,
+                    e
+                );
+                None
+            }
+        };
+
         let db = Self {
             conn: Arc::new(Mutex::new(conn)),
+            text_index,
         };
         db.init_schema()?;
         Ok(db)
@@ -24,11 +48,25 @@ impl Database {
 
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
+        let text_index = match TantivySearchIndex::create_in_ram() {
+            Ok(idx) => Some(Arc::new(idx)),
+            Err(e) => {
+                tracing::warn!("Failed to initialize in-RAM Tantivy index: {}", e);
+                None
+            }
+        };
+
         let db = Self {
             conn: Arc::new(Mutex::new(conn)),
+            text_index,
         };
         db.init_schema()?;
         Ok(db)
+    }
+
+    pub fn with_text_index(mut self, text_index: Option<Arc<TantivySearchIndex>>) -> Self {
+        self.text_index = text_index;
+        self
     }
 
     fn init_schema(&self) -> Result<()> {
@@ -128,6 +166,18 @@ impl Database {
 
     pub fn remove_root(&self, path: &str) -> Result<bool> {
         let conn = self.conn.lock().unwrap();
+        if let Some(ref text_index) = self.text_index {
+            if let Ok(mut stmt) = conn.prepare(
+                "SELECT f.id FROM files f JOIN roots r ON f.root_id = r.id WHERE r.path = ?1",
+            ) {
+                if let Ok(ids) = stmt.query_map(params![path], |row| row.get::<_, String>(0)) {
+                    for id in ids.flatten() {
+                        let _ = text_index.delete_file(&id);
+                    }
+                    let _ = text_index.commit();
+                }
+            }
+        }
         let rows = conn.execute("DELETE FROM roots WHERE path = ?1", params![path])?;
         Ok(rows > 0)
     }
@@ -199,48 +249,84 @@ impl Database {
     }
 
     pub fn upsert_files_batch(&self, root_id: &str, files: &[FileMeta]) -> Result<usize> {
-        let mut conn = self.conn.lock().unwrap();
-        let tx = conn.transaction()?;
-        let now_str = Utc::now().to_rfc3339();
+        let mut file_records_to_index: Vec<(String, String, String, String)> = Vec::new();
         let mut count = 0;
 
         {
-            let mut stmt = tx.prepare(
-                r#"
-                INSERT INTO files (
-                    id, root_id, path, filename, extension,
-                    size_bytes, modified_at, fingerprint, indexed_at, is_deleted
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0)
-                ON CONFLICT(path) DO UPDATE SET
-                    filename = excluded.filename,
-                    extension = excluded.extension,
-                    size_bytes = excluded.size_bytes,
-                    modified_at = excluded.modified_at,
-                    fingerprint = excluded.fingerprint,
-                    indexed_at = excluded.indexed_at,
-                    is_deleted = 0
-                "#,
-            )?;
+            let mut conn = self.conn.lock().unwrap();
+            let tx = conn.transaction()?;
+            let now_str = Utc::now().to_rfc3339();
 
-            for file in files {
-                let id = Uuid::new_v4().to_string();
-                let mtime_str = file.modified_at.to_rfc3339();
-                stmt.execute(params![
-                    id,
-                    root_id,
-                    file.path,
-                    file.filename,
-                    file.extension,
-                    file.size_bytes,
-                    mtime_str,
-                    file.fingerprint,
-                    now_str,
-                ])?;
-                count += 1;
+            {
+                let mut stmt = tx.prepare(
+                    r#"
+                    INSERT INTO files (
+                        id, root_id, path, filename, extension,
+                        size_bytes, modified_at, fingerprint, indexed_at, is_deleted
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0)
+                    ON CONFLICT(path) DO UPDATE SET
+                        filename = excluded.filename,
+                        extension = excluded.extension,
+                        size_bytes = excluded.size_bytes,
+                        modified_at = excluded.modified_at,
+                        fingerprint = excluded.fingerprint,
+                        indexed_at = excluded.indexed_at,
+                        is_deleted = 0
+                    "#,
+                )?;
+
+                let mut id_lookup = tx.prepare("SELECT id FROM files WHERE path = ?1")?;
+
+                for file in files {
+                    let id = Uuid::new_v4().to_string();
+                    let mtime_str = file.modified_at.to_rfc3339();
+                    stmt.execute(params![
+                        id,
+                        root_id,
+                        file.path,
+                        file.filename,
+                        file.extension,
+                        file.size_bytes,
+                        mtime_str,
+                        file.fingerprint,
+                        now_str,
+                    ])?;
+
+                    if let Ok(actual_id) =
+                        id_lookup.query_row(params![file.path], |row| row.get::<_, String>(0))
+                    {
+                        file_records_to_index.push((
+                            file.path.clone(),
+                            file.filename.clone(),
+                            file.extension.clone(),
+                            actual_id,
+                        ));
+                    }
+                    count += 1;
+                }
             }
+
+            tx.commit()?;
+        } // MutexGuard is dropped here before Tantivy chunk ingestion
+
+        // If Tantivy full-text index is active, ingest and index document chunks
+        if let Some(ref text_index) = self.text_index {
+            for (path, filename, extension, id) in file_records_to_index {
+                let chunks = extract_document_chunks(Path::new(&path)).unwrap_or_default();
+                if !chunks.is_empty() {
+                    let modality = if extension == "pdf" {
+                        "pdf"
+                    } else if crate::extract::is_text_or_code_extension(&extension) {
+                        "code"
+                    } else {
+                        "text"
+                    };
+                    let _ = text_index.upsert_file_chunks(&id, &path, &filename, modality, &chunks);
+                }
+            }
+            let _ = text_index.commit();
         }
 
-        tx.commit()?;
         Ok(count)
     }
 
@@ -321,6 +407,102 @@ impl Database {
         Ok(results)
     }
 
+    /// Unified search coordinating fast SQLite filename lookup and Tantivy full-text index.
+    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchResultItem>> {
+        let q_trimmed = query.trim();
+        if q_trimmed.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // 1. Filename matches
+        let filename_matches = self.search_filenames(q_trimmed, limit)?;
+
+        // 2. Full-text hits from Tantivy
+        let text_hits = if let Some(ref text_index) = self.text_index {
+            text_index.search(q_trimmed, limit).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        if text_hits.is_empty() {
+            return Ok(filename_matches);
+        }
+
+        // 3. Deduplicate and merge
+        let mut merged: HashMap<String, SearchResultItem> = HashMap::new();
+
+        // Add filename matches
+        for item in filename_matches {
+            merged.insert(item.id.clone(), item);
+        }
+
+        // Merge full-text hits
+        for hit in text_hits {
+            if let Some(existing) = merged.get_mut(&hit.file_id) {
+                // Both filename and full-text content matched
+                existing.score += 0.25;
+                let provenance = if let Some(p) = hit.page_number {
+                    format!("Content matched on Page {}", p)
+                } else if let Some(l) = hit.line_number {
+                    format!("Content matched at line {}", l)
+                } else {
+                    "Content matched query".to_string()
+                };
+                existing.match_reasons.push(provenance);
+                if existing.snippet.is_none() {
+                    existing.snippet = Some(hit.snippet);
+                }
+                if existing.page_number.is_none() {
+                    existing.page_number = hit.page_number;
+                }
+            } else {
+                // Content matched, but filename didn't
+                if let Ok(Some(file_rec)) = self.get_file_by_id(&hit.file_id) {
+                    if file_rec.is_deleted {
+                        continue;
+                    }
+                    let provenance = if let Some(p) = hit.page_number {
+                        format!("Page {}", p)
+                    } else if let Some(l) = hit.line_number {
+                        format!("Line {}", l)
+                    } else {
+                        "Document body".to_string()
+                    };
+
+                    merged.insert(
+                        hit.file_id.clone(),
+                        SearchResultItem {
+                            id: hit.file_id,
+                            path: hit.path,
+                            filename: hit.filename,
+                            extension: file_rec.extension,
+                            size_bytes: file_rec.size_bytes,
+                            modified_at: file_rec.modified_at,
+                            score: 0.55 + (hit.score.min(10.0) / 25.0),
+                            match_type: MatchType::Keyword,
+                            match_reasons: vec![format!("Full-text match ({})", provenance)],
+                            snippet: Some(hit.snippet),
+                            page_number: hit.page_number,
+                        },
+                    );
+                }
+            }
+        }
+
+        let mut results: Vec<SearchResultItem> = merged.into_values().collect();
+
+        // Sort by score descending, then filename length
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.filename.len().cmp(&b.filename.len()))
+        });
+
+        results.truncate(limit);
+        Ok(results)
+    }
+
     pub fn get_file_by_id(&self, file_id: &str) -> Result<Option<FileRecord>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
@@ -386,6 +568,10 @@ impl Database {
     }
 
     pub fn delete_file_by_path(&self, path: &str) -> Result<bool> {
+        if let Some(ref text_index) = self.text_index {
+            let _ = text_index.delete_path(path);
+            let _ = text_index.commit();
+        }
         let conn = self.conn.lock().unwrap();
         let affected = conn.execute("DELETE FROM files WHERE path = ?1", params![path])?;
         Ok(affected > 0)
@@ -394,6 +580,16 @@ impl Database {
     pub fn delete_files_under_path(&self, dir_prefix: &str) -> Result<usize> {
         let conn = self.conn.lock().unwrap();
         let pattern = format!("{}/%", dir_prefix.trim_end_matches('/'));
+        if let Some(ref text_index) = self.text_index {
+            if let Ok(mut stmt) = conn.prepare("SELECT id FROM files WHERE path LIKE ?1") {
+                if let Ok(ids) = stmt.query_map(params![pattern], |row| row.get::<_, String>(0)) {
+                    for id in ids.flatten() {
+                        let _ = text_index.delete_file(&id);
+                    }
+                    let _ = text_index.commit();
+                }
+            }
+        }
         let affected = conn.execute("DELETE FROM files WHERE path LIKE ?1", params![pattern])?;
         Ok(affected)
     }
@@ -420,10 +616,17 @@ impl Database {
             let mut del_stmt = tx.prepare("DELETE FROM files WHERE path = ?1")?;
             for old_path in existing_paths {
                 if !current_set.contains(old_path.as_str()) {
+                    if let Some(ref text_index) = self.text_index {
+                        let _ = text_index.delete_path(&old_path);
+                    }
                     del_stmt.execute(params![old_path])?;
                     deleted_count += 1;
                 }
             }
+        }
+
+        if let Some(ref text_index) = self.text_index {
+            let _ = text_index.commit();
         }
 
         tx.commit()?;

@@ -267,6 +267,42 @@ body {
   text-overflow: ellipsis;
 }
 
+.result-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.result-page-badge {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  background: rgba(167, 139, 250, 0.14);
+  color: #a78bfa;
+  border: 1px solid rgba(167, 139, 250, 0.25);
+  font-family: var(--font-mono);
+}
+
+.result-snippet-preview {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 3px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 380px;
+}
+
+.result-snippet-preview b {
+  color: var(--accent-violet-light);
+  font-weight: 600;
+  background-color: rgba(139, 92, 246, 0.18);
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
 .result-subtitle {
   font-size: 11px;
   color: var(--text-muted);

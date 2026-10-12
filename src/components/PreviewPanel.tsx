@@ -123,7 +123,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
           <div className="pdf-top-controls">
             <div className="pdf-badge-header">
               <FileText size={13} />
-              <span>PDF • Page 1 Preview</span>
+              <span>PDF • Page {preview.page_number || item.page_number || 1} Preview</span>
             </div>
 
             {hasVisual && textContent && (

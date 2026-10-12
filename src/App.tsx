@@ -107,7 +107,7 @@ export const App: React.FC = () => {
     let active = true;
     setIsPreviewLoading(true);
 
-    SiftAPI.previewResult(selectedItem.id)
+    SiftAPI.previewResult(selectedItem.id, selectedItem.page_number)
       .then((p) => {
         if (active) setPreview(p);
       })

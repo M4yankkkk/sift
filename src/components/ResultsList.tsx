@@ -79,10 +79,21 @@ export const ResultsList: React.FC<ResultsListProps> = ({
                 {getFileIcon(item.extension)}
               </div>
               <div className="result-text-stack">
-                <span className="result-title">{item.filename}</span>
+                <div className="result-title-row">
+                  <span className="result-title">{item.filename}</span>
+                  {item.page_number && (
+                    <span className="result-page-badge">Page {item.page_number}</span>
+                  )}
+                </div>
                 <span className="result-subtitle" title={item.path}>
                   {item.path}
                 </span>
+                {item.snippet && (
+                  <div
+                    className="result-snippet-preview"
+                    dangerouslySetInnerHTML={{ __html: item.snippet }}
+                  />
+                )}
               </div>
             </div>
 

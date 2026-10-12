@@ -185,14 +185,15 @@ pub fn get_image_mime(ext: &str) -> Option<&'static str> {
     }
 }
 
-pub fn render_pdf_first_page(path: &Path) -> Option<String> {
+pub fn render_pdf_page(path: &Path, page: u32) -> Option<String> {
     use std::process::Command;
+    let page_str = page.max(1).to_string();
     let output = Command::new("pdftoppm")
         .arg("-png")
         .arg("-f")
-        .arg("1")
+        .arg(&page_str)
         .arg("-l")
-        .arg("1")
+        .arg(&page_str)
         .arg("-scale-to")
         .arg("800")
         .arg(path)
@@ -202,6 +203,38 @@ pub fn render_pdf_first_page(path: &Path) -> Option<String> {
     if output.status.success() && !output.stdout.is_empty() {
         let b64 = base64_encode(&output.stdout);
         return Some(format!("data:image/png;base64,{}", b64));
+    }
+    None
+}
+
+pub fn render_pdf_first_page(path: &Path) -> Option<String> {
+    render_pdf_page(path, 1)
+}
+
+pub fn extract_pdf_page_preview(path: &Path, page: u32, max_bytes: usize) -> Option<String> {
+    use std::process::Command;
+    let page_str = page.max(1).to_string();
+    let output = Command::new("pdftotext")
+        .arg("-f")
+        .arg(&page_str)
+        .arg("-l")
+        .arg(&page_str)
+        .arg("-q")
+        .arg(path)
+        .arg("-")
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !text.is_empty() {
+            let mut truncated = text;
+            if truncated.len() > max_bytes {
+                truncated.truncate(max_bytes);
+                truncated.push_str("\n\n[... preview truncated ...]");
+            }
+            return Some(truncated);
+        }
     }
     None
 }

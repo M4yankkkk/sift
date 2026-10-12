@@ -1,16 +1,20 @@
 pub mod error;
+pub mod extract;
 pub mod models;
 pub mod scanner;
 pub mod storage;
+pub mod tantivy_index;
 pub mod watcher;
 
 pub use error::{Result, SiftError};
+pub use extract::{extract_document_chunks, DocumentChunk};
 pub use models::*;
 pub use scanner::{
-    extract_pdf_preview, read_file_metadata, read_file_preview, render_pdf_first_page,
-    scan_directory, FileMeta, PathRuleChecker,
+    extract_pdf_page_preview, extract_pdf_preview, read_file_metadata, read_file_preview,
+    render_pdf_first_page, render_pdf_page, scan_directory, FileMeta, PathRuleChecker,
 };
 pub use storage::Database;
+pub use tantivy_index::{FullTextHit, TantivySearchIndex};
 pub use watcher::FileWatcher;
 
 /// Initializes structured logging using `tracing-subscriber`

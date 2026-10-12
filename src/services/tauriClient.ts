@@ -104,7 +104,7 @@ export const SiftAPI = {
     return invoke<SearchResponse>("search_files", { query });
   },
 
-  previewResult: async (fileId: string): Promise<PreviewResponse> => {
+  previewResult: async (fileId: string, page?: number | null): Promise<PreviewResponse> => {
     if (!isTauriEnvironment()) {
       return {
         id: fileId,
@@ -114,10 +114,10 @@ export const SiftAPI = {
         size_bytes: 4096,
         preview_content: "# Project Roadmap\n\nPhase 0 completed successfully.",
         snippet: null,
-        page_number: null,
+        page_number: page || null,
       };
     }
-    return invoke<PreviewResponse>("preview_result", { fileId });
+    return invoke<PreviewResponse>("preview_result", { fileId, page: page || null });
   },
 
   openResult: async (path: string): Promise<void> => {
