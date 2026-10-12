@@ -30,6 +30,7 @@ pub struct FullTextHit {
     pub line_number: Option<i32>,
     pub snippet: String,
     pub score: f32,
+    pub modality: String,
 }
 
 pub struct TantivySearchIndex {
@@ -289,6 +290,12 @@ impl TantivySearchIndex {
                     .collect()
             };
 
+            let modality = doc
+                .get_first(self.fields.modality)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
             hits.push(FullTextHit {
                 file_id,
                 path,
@@ -298,6 +305,7 @@ impl TantivySearchIndex {
                 line_number,
                 snippet,
                 score,
+                modality,
             });
         }
 

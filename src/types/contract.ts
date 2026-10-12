@@ -52,6 +52,19 @@ export interface SearchResponse {
   query: string;
 }
 
+export interface OcrBoundingBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export interface OcrWordRegion {
+  text: string;
+  confidence: number;
+  bbox: OcrBoundingBox;
+}
+
 export interface PreviewResponse {
   id: string;
   path: string;
@@ -61,6 +74,8 @@ export interface PreviewResponse {
   preview_content: string;
   snippet: string | null;
   page_number: number | null;
+  ocr_regions?: OcrWordRegion[] | null;
+  confidence?: number | null;
 }
 
 export interface AppSettings {

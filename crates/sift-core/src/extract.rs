@@ -216,8 +216,20 @@ pub fn extract_document_chunks(path: &Path) -> Result<Vec<DocumentChunk>> {
         extract_pdf_chunks(path, MAX_INDEXABLE_FILE_SIZE_BYTES)
     } else if is_text_or_code_extension(&ext) {
         extract_text_chunks(path, MAX_INDEXABLE_FILE_SIZE_BYTES)
+    } else if crate::ocr::is_ocr_supported_extension(&ext) {
+        if let Ok(Some(ocr_res)) = crate::ocr::extract_image_ocr(path) {
+            if !ocr_res.full_text.trim().is_empty() {
+                return Ok(vec![DocumentChunk {
+                    chunk_index: 0,
+                    page_number: None,
+                    line_number: None,
+                    content: ocr_res.full_text,
+                }]);
+            }
+        }
+        Ok(Vec::new())
     } else {
-        // Not a text or PDF file (e.g. image, archive, binary)
+        // Not a text, PDF, or supported OCR image file (e.g. archive, binary)
         Ok(Vec::new())
     }
 }

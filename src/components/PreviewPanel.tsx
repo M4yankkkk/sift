@@ -24,6 +24,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
 }) => {
   const [imgDims, setImgDims] = useState<{ width: number; height: number } | null>(null);
   const [pdfTab, setPdfTab] = useState<"visual" | "text">("visual");
+  const [showOcrBoxes, setShowOcrBoxes] = useState(true);
 
   if (!item) {
     return (
@@ -87,28 +88,85 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
 
     // 1. Image Preview
     if (isImage && preview.preview_content?.startsWith("data:image/")) {
+      const hasOcr = preview.ocr_regions && preview.ocr_regions.length > 0;
+
       return (
         <div className="preview-image-container">
           <div className="preview-image-viewport">
-            <img
-              src={preview.preview_content}
-              alt={item.filename}
-              className="preview-image-element"
-              onLoad={(e) => {
-                setImgDims({
-                  width: e.currentTarget.naturalWidth,
-                  height: e.currentTarget.naturalHeight,
-                });
-              }}
-            />
+            <div className="preview-image-wrapper">
+              <img
+                src={preview.preview_content}
+                alt={item.filename}
+                className="preview-image-element"
+                onLoad={(e) => {
+                  setImgDims({
+                    width: e.currentTarget.naturalWidth,
+                    height: e.currentTarget.naturalHeight,
+                  });
+                }}
+              />
+              {showOcrBoxes &&
+                imgDims &&
+                hasOcr &&
+                preview.ocr_regions!.map((region, idx) => {
+                  const leftPct = (region.bbox.left / imgDims.width) * 100;
+                  const topPct = (region.bbox.top / imgDims.height) * 100;
+                  const widthPct = (region.bbox.width / imgDims.width) * 100;
+                  const heightPct = (region.bbox.height / imgDims.height) * 100;
+
+                  return (
+                    <div
+                      key={idx}
+                      className="ocr-bounding-box"
+                      style={{
+                        left: `${leftPct}%`,
+                        top: `${topPct}%`,
+                        width: `${widthPct}%`,
+                        height: `${heightPct}%`,
+                      }}
+                      title={`${region.text} (${Math.round(region.confidence)}% conf)`}
+                    />
+                  );
+                })}
+            </div>
           </div>
+
           <div className="preview-image-meta">
-            <ImageIcon size={13} color="var(--accent-amber)" />
-            <span>
-              {imgDims ? `${imgDims.width} × ${imgDims.height} px • ` : ""}
-              {(item.size_bytes / 1024).toFixed(1)} KB • {item.extension.toUpperCase()}
-            </span>
+            <div className="image-meta-left">
+              <ImageIcon size={13} color="var(--accent-amber)" />
+              <span>
+                {imgDims ? `${imgDims.width} × ${imgDims.height} px • ` : ""}
+                {(item.size_bytes / 1024).toFixed(1)} KB • {item.extension.toUpperCase()}
+              </span>
+            </div>
+
+            {hasOcr && (
+              <div className="ocr-meta-toggle">
+                <button
+                  className={`ocr-toggle-pill ${showOcrBoxes ? "active" : ""}`}
+                  onClick={() => setShowOcrBoxes((v) => !v)}
+                  title="Toggle OCR match bounding boxes"
+                >
+                  <Sparkles size={11} />
+                  <span>OCR Boxes ({preview.ocr_regions!.length})</span>
+                </button>
+              </div>
+            )}
           </div>
+
+          {hasOcr && preview.snippet && (
+            <div className="ocr-text-card">
+              <div className="ocr-text-header">
+                <span className="ocr-badge-label">
+                  OCR Text Match {preview.confidence ? `• ${Math.round(preview.confidence)}% Confidence` : ""}
+                </span>
+              </div>
+              <div
+                className="ocr-text-snippet"
+                dangerouslySetInnerHTML={{ __html: preview.snippet }}
+              />
+            </div>
+          )}
         </div>
       );
     }

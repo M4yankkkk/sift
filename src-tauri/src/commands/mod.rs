@@ -208,6 +208,18 @@ pub async fn preview_result(
         _ => "application/octet-stream",
     };
 
+    let (ocr_regions, confidence, ocr_snippet) = if sift_core::is_ocr_supported_extension(&ext) {
+        if let Ok(Some((full_text, conf, regions))) = state.db.get_ocr_data(&file.id) {
+            (Some(regions), Some(conf), Some(full_text))
+        } else {
+            (None, None, None)
+        }
+    } else {
+        (None, None, None)
+    };
+
+    let final_snippet = snippet.or(ocr_snippet);
+
     Ok(PreviewResponse {
         id: file.id,
         path: file.path,
@@ -215,8 +227,10 @@ pub async fn preview_result(
         mime_type: mime_type.to_string(),
         size_bytes: file.size_bytes,
         preview_content,
-        snippet,
+        snippet: final_snippet,
         page_number,
+        ocr_regions,
+        confidence,
     })
 }
 

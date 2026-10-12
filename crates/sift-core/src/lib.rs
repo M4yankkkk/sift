@@ -1,6 +1,7 @@
 pub mod error;
 pub mod extract;
 pub mod models;
+pub mod ocr;
 pub mod scanner;
 pub mod storage;
 pub mod tantivy_index;
@@ -9,6 +10,7 @@ pub mod watcher;
 pub use error::{Result, SiftError};
 pub use extract::{extract_document_chunks, DocumentChunk};
 pub use models::*;
+pub use ocr::{extract_image_ocr, is_ocr_available, is_ocr_supported_extension};
 pub use scanner::{
     extract_pdf_page_preview, extract_pdf_preview, read_file_metadata, read_file_preview,
     render_pdf_first_page, render_pdf_page, scan_directory, FileMeta, PathRuleChecker,

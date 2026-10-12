@@ -114,6 +114,13 @@ impl Database {
 
             CREATE INDEX IF NOT EXISTS idx_chunks_file_id ON chunks(file_id);
 
+            CREATE TABLE IF NOT EXISTS ocr_data (
+                file_id TEXT PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+                full_text TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                regions_json TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -312,16 +319,59 @@ impl Database {
         // If Tantivy full-text index is active, ingest and index document chunks
         if let Some(ref text_index) = self.text_index {
             for (path, filename, extension, id) in file_records_to_index {
-                let chunks = extract_document_chunks(Path::new(&path)).unwrap_or_default();
-                if !chunks.is_empty() {
-                    let modality = if extension == "pdf" {
-                        "pdf"
-                    } else if crate::extract::is_text_or_code_extension(&extension) {
-                        "code"
-                    } else {
-                        "text"
-                    };
-                    let _ = text_index.upsert_file_chunks(&id, &path, &filename, modality, &chunks);
+                if crate::ocr::is_ocr_supported_extension(&extension) {
+                    if let Ok(Some(ocr_res)) = crate::ocr::extract_image_ocr(Path::new(&path)) {
+                        if !ocr_res.full_text.trim().is_empty() {
+                            let regions_json =
+                                serde_json::to_string(&ocr_res.regions).unwrap_or_default();
+                            {
+                                let conn = self.conn.lock().unwrap();
+                                let _ = conn.execute(
+                                    r#"
+                                    INSERT INTO ocr_data (file_id, full_text, confidence, regions_json)
+                                    VALUES (?1, ?2, ?3, ?4)
+                                    ON CONFLICT(file_id) DO UPDATE SET
+                                        full_text = excluded.full_text,
+                                        confidence = excluded.confidence,
+                                        regions_json = excluded.regions_json
+                                    "#,
+                                    params![
+                                        id,
+                                        ocr_res.full_text,
+                                        ocr_res.average_confidence as f64,
+                                        regions_json,
+                                    ],
+                                );
+                            }
+
+                            let chunk = crate::extract::DocumentChunk {
+                                chunk_index: 0,
+                                page_number: None,
+                                line_number: None,
+                                content: ocr_res.full_text,
+                            };
+                            let _ = text_index.upsert_file_chunks(
+                                &id,
+                                &path,
+                                &filename,
+                                "ocr",
+                                &[chunk],
+                            );
+                        }
+                    }
+                } else {
+                    let chunks = extract_document_chunks(Path::new(&path)).unwrap_or_default();
+                    if !chunks.is_empty() {
+                        let modality = if extension == "pdf" {
+                            "pdf"
+                        } else if crate::extract::is_text_or_code_extension(&extension) {
+                            "code"
+                        } else {
+                            "text"
+                        };
+                        let _ =
+                            text_index.upsert_file_chunks(&id, &path, &filename, modality, &chunks);
+                    }
                 }
             }
             let _ = text_index.commit();
@@ -438,17 +488,25 @@ impl Database {
 
         // Merge full-text hits
         for hit in text_hits {
+            let is_ocr = hit.modality == "ocr";
             if let Some(existing) = merged.get_mut(&hit.file_id) {
                 // Both filename and full-text content matched
                 existing.score += 0.25;
-                let provenance = if let Some(p) = hit.page_number {
-                    format!("Content matched on Page {}", p)
-                } else if let Some(l) = hit.line_number {
-                    format!("Content matched at line {}", l)
+                if is_ocr {
+                    existing.match_type = MatchType::Ocr;
+                    existing
+                        .match_reasons
+                        .push("Screenshot OCR match".to_string());
                 } else {
-                    "Content matched query".to_string()
-                };
-                existing.match_reasons.push(provenance);
+                    let provenance = if let Some(p) = hit.page_number {
+                        format!("Content matched on Page {}", p)
+                    } else if let Some(l) = hit.line_number {
+                        format!("Content matched at line {}", l)
+                    } else {
+                        "Content matched query".to_string()
+                    };
+                    existing.match_reasons.push(provenance);
+                }
                 if existing.snippet.is_none() {
                     existing.snippet = Some(hit.snippet);
                 }
@@ -461,7 +519,14 @@ impl Database {
                     if file_rec.is_deleted {
                         continue;
                     }
-                    let provenance = if let Some(p) = hit.page_number {
+                    let match_type = if is_ocr {
+                        MatchType::Ocr
+                    } else {
+                        MatchType::Keyword
+                    };
+                    let provenance = if is_ocr {
+                        "Screenshot OCR match".to_string()
+                    } else if let Some(p) = hit.page_number {
                         format!("Page {}", p)
                     } else if let Some(l) = hit.line_number {
                         format!("Line {}", l)
@@ -479,7 +544,7 @@ impl Database {
                             size_bytes: file_rec.size_bytes,
                             modified_at: file_rec.modified_at,
                             score: 0.55 + (hit.score.min(10.0) / 25.0),
-                            match_type: MatchType::Keyword,
+                            match_type,
                             match_reasons: vec![format!("Full-text match ({})", provenance)],
                             snippet: Some(hit.snippet),
                             page_number: hit.page_number,
@@ -554,6 +619,32 @@ impl Database {
             Ok(Some(r?))
         } else {
             Ok(None)
+        }
+    }
+
+    pub fn get_ocr_data(
+        &self,
+        file_id: &str,
+    ) -> Result<Option<(String, f32, Vec<crate::models::OcrWordRegion>)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT full_text, confidence, regions_json FROM ocr_data WHERE file_id = ?1",
+        )?;
+        let res = stmt.query_row(params![file_id], |row| {
+            let text: String = row.get(0)?;
+            let conf: f64 = row.get(1)?;
+            let json: String = row.get(2)?;
+            Ok((text, conf as f32, json))
+        });
+
+        match res {
+            Ok((text, conf, json)) => {
+                let regions: Vec<crate::models::OcrWordRegion> =
+                    serde_json::from_str(&json).unwrap_or_default();
+                Ok(Some((text, conf, regions)))
+            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(SiftError::Database(e)),
         }
     }
 

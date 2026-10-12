@@ -114,7 +114,9 @@ export const ResultsList: React.FC<ResultsListProps> = ({
             </div>
 
             <div className="result-meta-right">
-              <span className="badge-tag">{item.match_type}</span>
+              <span className={`badge-tag ${item.match_type === "ocr" ? "badge-ocr" : ""}`}>
+                {item.match_type}
+              </span>
               {isSelected && (
                 <span style={{ color: "var(--accent-violet-light)", display: "flex", alignItems: "center" }}>
                   <CornerDownLeft size={12} />

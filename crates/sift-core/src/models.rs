@@ -73,6 +73,28 @@ pub struct SearchResponse {
     pub query: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OcrBoundingBox {
+    pub left: i32,
+    pub top: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OcrWordRegion {
+    pub text: String,
+    pub confidence: f32,
+    pub bbox: OcrBoundingBox,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OcrResult {
+    pub full_text: String,
+    pub average_confidence: f32,
+    pub regions: Vec<OcrWordRegion>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PreviewResponse {
     pub id: String,
@@ -83,6 +105,8 @@ pub struct PreviewResponse {
     pub preview_content: String,
     pub snippet: Option<String>,
     pub page_number: Option<i32>,
+    pub ocr_regions: Option<Vec<OcrWordRegion>>,
+    pub confidence: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,7 +125,7 @@ impl Default for AppSettings {
             global_shortcut: "Alt+Space".to_string(),
             resource_mode: ResourceMode::Eco,
             ml_enabled: false,
-            ocr_enabled: false,
+            ocr_enabled: true,
             default_exclusions: vec![
                 ".git".to_string(),
                 "node_modules".to_string(),
