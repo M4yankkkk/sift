@@ -1,6 +1,6 @@
 import React from "react";
 import type { PreviewResponse, SearchResultItem } from "../types/contract";
-import { ExternalLink, FolderOpen, Info } from "lucide-react";
+import { ExternalLink, FolderOpen, FileQuestion, Sparkles } from "lucide-react";
 import { SiftAPI } from "../services/tauriClient";
 
 interface PreviewPanelProps {
@@ -16,18 +16,13 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
 }) => {
   if (!item) {
     return (
-      <div
-        className="preview-panel"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "var(--text-muted)",
-        }}
-      >
-        <div style={{ textAlign: "center", padding: 24 }}>
-          <Info size={32} style={{ opacity: 0.5, marginBottom: 8 }} />
-          <p>Select a result to preview contents</p>
+      <div className="preview-container">
+        <div className="empty-state">
+          <FileQuestion size={28} className="empty-state-icon" />
+          <div className="empty-title">Select a file to preview</div>
+          <div className="empty-desc">
+            Use the arrow keys or click a search result to view details and code/text excerpts.
+          </div>
         </div>
       </div>
     );
@@ -42,54 +37,67 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
   };
 
   return (
-    <div className="preview-panel">
-      <div className="preview-header">
-        <div style={{ overflow: "hidden", marginRight: 12 }}>
-          <h4
-            style={{
-              fontSize: 14,
-              fontWeight: 600,
-              textOverflow: "ellipsis",
-              overflow: "hidden",
-              whiteSpace: "nowrap",
-            }}
-          >
+    <div className="preview-container">
+      {/* Top Header */}
+      <div className="preview-topbar">
+        <div className="preview-file-info">
+          <div className="preview-title" title={item.filename}>
             {item.filename}
-          </h4>
-          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-            {(item.size_bytes / 1024).toFixed(1)} KB • {item.extension.toUpperCase()}
-          </span>
+          </div>
+          <div className="preview-chips">
+            <span>{(item.size_bytes / 1024).toFixed(1)} KB</span>
+            <span>•</span>
+            <span style={{ textTransform: "uppercase" }}>{item.extension}</span>
+            <span>•</span>
+            <span>{new Date(item.modified_at).toLocaleDateString()}</span>
+          </div>
         </div>
-        <div className="preview-actions">
+
+        {/* Action Buttons */}
+        <div className="preview-action-group">
           <button
-            className="btn-secondary"
+            className="btn-reveal"
             onClick={handleReveal}
             title="Reveal in file manager"
           >
-            <FolderOpen size={14} style={{ marginRight: 4, verticalAlign: "middle" }} />
+            <FolderOpen size={13} />
             Reveal
           </button>
           <button
-            className="btn-primary"
+            className="btn-open"
             onClick={handleOpen}
-            title="Open file with default system application"
+            title="Open file with default system application (Enter)"
           >
-            <ExternalLink size={14} style={{ marginRight: 4, verticalAlign: "middle" }} />
+            <ExternalLink size={13} />
             Open
           </button>
         </div>
       </div>
 
-      <div className="preview-body">
+      {/* Matched Snippet Callout (if available) */}
+      {item.snippet && (
+        <div className="matched-snippet-callout">
+          <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4, fontWeight: 600 }}>
+            <Sparkles size={12} />
+            Matched Context:
+          </div>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 11.5 }}>
+            {item.snippet}
+          </div>
+        </div>
+      )}
+
+      {/* Preview Content Body */}
+      <div className="preview-content-box">
         {isLoading ? (
-          <div style={{ textAlign: "center", color: "var(--text-muted)", marginTop: 24 }}>
+          <div style={{ color: "var(--text-muted)", textAlign: "center", padding: 24 }}>
             Loading preview...
           </div>
         ) : preview?.preview_content ? (
           preview.preview_content
         ) : (
-          <div style={{ color: "var(--text-muted)" }}>
-            [Binary or empty preview: use Open or Reveal to inspect file]
+          <div style={{ color: "var(--text-muted)", fontStyle: "italic" }}>
+            Binary or non-text document. Use "Open" or "Reveal" to view in native viewer.
           </div>
         )}
       </div>

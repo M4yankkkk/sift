@@ -1,36 +1,41 @@
 import React from "react";
 import type { IndexStatus } from "../types/contract";
-import { Database, RefreshCw } from "lucide-react";
+import { FolderCheck, Sliders, RefreshCw } from "lucide-react";
 
 interface StatusBarProps {
   status: IndexStatus | null;
   onRefreshScan: () => void;
+  onOpenFolders: () => void;
+  onOpenSettings: () => void;
+  isFoldersOpen: boolean;
+  isSettingsOpen: boolean;
+  showPreview: boolean;
+  onTogglePreview: () => void;
 }
 
-export const StatusBar: React.FC<StatusBarProps> = ({ status, onRefreshScan }) => {
+export const StatusBar: React.FC<StatusBarProps> = ({
+  status,
+  onRefreshScan,
+  onOpenFolders,
+  onOpenSettings,
+  isFoldersOpen,
+  isSettingsOpen,
+  showPreview,
+  onTogglePreview,
+}) => {
   const isBusy = status?.is_indexing || status?.is_scanning;
 
   return (
-    <footer className="app-footer">
-      <div className="status-badge">
-        <span className={`status-dot ${isBusy ? "indexing" : ""}`} />
+    <footer className="action-bar">
+      {/* Index Status Indicator */}
+      <div className="index-status-indicator">
+        <span className={`indicator-dot ${isBusy ? "active" : ""}`} />
         <span>
           {isBusy
-            ? status?.current_operation || "Indexing background queue..."
-            : "Index synchronized"}
+            ? status?.current_operation || "Indexing files..."
+            : `${status ? status.files_indexed : 0} files indexed`}
         </span>
-      </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <Database size={13} />
-          {status ? `${status.files_indexed} files ready` : "0 files"}
-        </span>
-        {status && status.queue_length > 0 && (
-          <span style={{ color: "var(--accent-amber)" }}>
-            ({status.queue_length} queued)
-          </span>
-        )}
         <button
           onClick={onRefreshScan}
           disabled={isBusy}
@@ -39,12 +44,53 @@ export const StatusBar: React.FC<StatusBarProps> = ({ status, onRefreshScan }) =
             border: "none",
             color: "var(--text-muted)",
             cursor: isBusy ? "not-allowed" : "pointer",
-            display: "flex",
+            display: "inline-flex",
             alignItems: "center",
+            padding: 2,
+            marginLeft: 4,
           }}
           title="Force reconciliation scan"
         >
-          <RefreshCw size={13} className={isBusy ? "spin" : ""} />
+          <RefreshCw size={11} className={isBusy ? "spin" : ""} />
+        </button>
+      </div>
+
+      {/* Action shortcuts & sheet triggers */}
+      <div className="keycap-shortcuts">
+        <span className="keycap-group">
+          <span className="keycap">↵</span>
+          <span>Open</span>
+        </span>
+
+        <button
+          className={`action-icon-btn ${showPreview ? "active" : ""}`}
+          onClick={onTogglePreview}
+          title="Toggle preview panel"
+        >
+          <span className="keycap">Tab</span>
+          <span>Preview</span>
+        </button>
+
+        <span style={{ color: "var(--border-subtle)" }}>|</span>
+
+        {/* Folders Sheet Trigger */}
+        <button
+          className={`action-icon-btn ${isFoldersOpen ? "active" : ""}`}
+          onClick={onOpenFolders}
+          title="Manage indexed folders"
+        >
+          <FolderCheck size={13} />
+          <span>Folders</span>
+        </button>
+
+        {/* Settings Sheet Trigger */}
+        <button
+          className={`action-icon-btn ${isSettingsOpen ? "active" : ""}`}
+          onClick={onOpenSettings}
+          title="Configure Sift settings"
+        >
+          <Sliders size={13} />
+          <span>Settings</span>
         </button>
       </div>
     </footer>

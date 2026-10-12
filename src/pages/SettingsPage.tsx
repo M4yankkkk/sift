@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from "react";
-import { Settings as SettingsIcon, Cpu, Zap, Shield, Save } from "lucide-react";
+import { Sliders, Cpu, Zap, Shield, Save, X } from "lucide-react";
 import { SiftAPI } from "../services/tauriClient";
 import type { AppSettings, ResourceMode } from "../types/contract";
 
-export const SettingsPage: React.FC = () => {
+interface SettingsPageProps {
+  onClose?: () => void;
+}
+
+export const SettingsPage: React.FC<SettingsPageProps> = ({ onClose }) => {
   const [settings, setSettings] = useState<AppSettings>({
     global_shortcut: "Alt+Space",
     resource_mode: "eco",
@@ -30,38 +34,47 @@ export const SettingsPage: React.FC = () => {
   };
 
   return (
-    <div style={{ flex: 1, padding: 24, overflowY: "auto" }}>
-      <div style={{ maxWidth: 640, margin: "0 auto" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-          <SettingsIcon size={20} color="var(--accent-blue)" />
-          <h2 style={{ fontSize: 18, fontWeight: 600 }}>Application Settings</h2>
+    <div className="modal-overlay">
+      <div className="modal-header">
+        <div className="modal-title-stack">
+          <Sliders size={18} color="var(--accent-violet-light)" />
+          <h3 style={{ fontSize: 15, fontWeight: 600 }}>Preferences</h3>
         </div>
+        {onClose && (
+          <button className="modal-close-btn" onClick={onClose} title="Close (Esc)">
+            <X size={15} />
+          </button>
+        )}
+      </div>
 
+      <div className="modal-content-area">
         {/* Global Shortcut */}
         <div
           style={{
-            backgroundColor: "var(--bg-secondary)",
-            border: "1px solid var(--border-color)",
-            borderRadius: "var(--radius-md)",
-            padding: 16,
-            marginBottom: 16,
+            backgroundColor: "var(--bg-surface)",
+            border: "1px solid var(--border-subtle)",
+            borderRadius: "var(--radius-sm)",
+            padding: 14,
+            marginBottom: 14,
           }}
         >
-          <label style={{ display: "block", fontWeight: 500, fontSize: 14, marginBottom: 6 }}>
+          <label style={{ display: "block", fontWeight: 500, fontSize: 13, marginBottom: 4 }}>
             Global Launch Shortcut
           </label>
-          <p style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 12 }}>
-            Press this system-wide key combination to bring Sift to the foreground.
+          <p style={{ fontSize: 11.5, color: "var(--text-muted)", marginBottom: 10 }}>
+            System-wide key combination to invoke this search launcher.
           </p>
           <input
             type="text"
-            className="search-input"
+            className="search-input-field"
             style={{
-              backgroundColor: "var(--bg-tertiary)",
-              border: "1px solid var(--border-color)",
-              borderRadius: "var(--radius-sm)",
-              padding: "8px 12px",
-              width: 200,
+              backgroundColor: "var(--bg-surface-elevated)",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: "var(--radius-xs)",
+              padding: "6px 10px",
+              width: 180,
+              fontSize: 12.5,
+              fontFamily: "var(--font-mono)",
             }}
             value={settings.global_shortcut}
             onChange={(e) =>
@@ -70,42 +83,42 @@ export const SettingsPage: React.FC = () => {
           />
         </div>
 
-        {/* Resource Mode */}
+        {/* Resource Profile */}
         <div
           style={{
-            backgroundColor: "var(--bg-secondary)",
-            border: "1px solid var(--border-color)",
-            borderRadius: "var(--radius-md)",
-            padding: 16,
-            marginBottom: 16,
+            backgroundColor: "var(--bg-surface)",
+            border: "1px solid var(--border-subtle)",
+            borderRadius: "var(--radius-sm)",
+            padding: 14,
+            marginBottom: 14,
           }}
         >
-          <label style={{ display: "block", fontWeight: 500, fontSize: 14, marginBottom: 6 }}>
+          <label style={{ display: "block", fontWeight: 500, fontSize: 13, marginBottom: 4 }}>
             Resource Profile
           </label>
-          <p style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 14 }}>
-            Controls background CPU thread limits and memory consumption during indexing.
+          <p style={{ fontSize: 11.5, color: "var(--text-muted)", marginBottom: 12 }}>
+            Governs background CPU and memory throttling during indexing passes.
           </p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <div
               onClick={() => setSettings({ ...settings, resource_mode: "eco" as ResourceMode })}
               style={{
                 border: `1px solid ${
-                  settings.resource_mode === "eco" ? "var(--accent-emerald)" : "var(--border-color)"
+                  settings.resource_mode === "eco" ? "var(--accent-emerald)" : "var(--border-subtle)"
                 }`,
                 backgroundColor:
-                  settings.resource_mode === "eco" ? "rgba(16, 185, 129, 0.08)" : "var(--bg-tertiary)",
-                borderRadius: "var(--radius-sm)",
-                padding: 12,
+                  settings.resource_mode === "eco" ? "rgba(16, 185, 129, 0.08)" : "var(--bg-surface-elevated)",
+                borderRadius: "var(--radius-xs)",
+                padding: 10,
                 cursor: "pointer",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                <Cpu size={16} color="var(--accent-emerald)" />
-                <span style={{ fontWeight: 600, fontSize: 13 }}>Eco Mode</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                <Cpu size={14} color="var(--accent-emerald)" />
+                <span style={{ fontWeight: 600, fontSize: 12 }}>Eco Mode</span>
               </div>
               <p style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                Low CPU priority, throttled background queue, idle RAM &lt; 100MB.
+                Restricted CPU threads, idle RAM &lt; 100MB.
               </p>
             </div>
 
@@ -113,21 +126,21 @@ export const SettingsPage: React.FC = () => {
               onClick={() => setSettings({ ...settings, resource_mode: "performance" as ResourceMode })}
               style={{
                 border: `1px solid ${
-                  settings.resource_mode === "performance" ? "var(--accent-blue)" : "var(--border-color)"
+                  settings.resource_mode === "performance" ? "var(--accent-violet)" : "var(--border-subtle)"
                 }`,
                 backgroundColor:
-                  settings.resource_mode === "performance" ? "rgba(59, 130, 246, 0.08)" : "var(--bg-tertiary)",
-                borderRadius: "var(--radius-sm)",
-                padding: 12,
+                  settings.resource_mode === "performance" ? "var(--accent-violet-subtle)" : "var(--bg-surface-elevated)",
+                borderRadius: "var(--radius-xs)",
+                padding: 10,
                 cursor: "pointer",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                <Zap size={16} color="var(--accent-blue)" />
-                <span style={{ fontWeight: 600, fontSize: 13 }}>Performance</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                <Zap size={14} color="var(--accent-violet-light)" />
+                <span style={{ fontWeight: 600, fontSize: 12 }}>Performance</span>
               </div>
               <p style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                Uses available cores for faster initial index passes.
+                Utilizes multi-core parallel indexing.
               </p>
             </div>
           </div>
@@ -136,31 +149,30 @@ export const SettingsPage: React.FC = () => {
         {/* Offline Privacy Guarantee */}
         <div
           style={{
-            backgroundColor: "var(--bg-secondary)",
-            border: "1px solid var(--border-color)",
-            borderRadius: "var(--radius-md)",
-            padding: 16,
-            marginBottom: 24,
+            backgroundColor: "var(--bg-surface)",
+            border: "1px solid var(--border-subtle)",
+            borderRadius: "var(--radius-sm)",
+            padding: 14,
+            marginBottom: 18,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-            <Shield size={16} color="var(--accent-blue)" />
-            <span style={{ fontWeight: 600, fontSize: 14 }}>Offline Privacy Guarantee</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+            <Shield size={14} color="var(--accent-violet-light)" />
+            <span style={{ fontWeight: 600, fontSize: 12.5 }}>Offline Privacy Guarantee</span>
           </div>
-          <p style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>
-            Sift is strictly local-only. No telemetry, cloud queries, or external network requests
-            are made during indexing or search. All SQLite, Tantivy, and vector data remain
-            encrypted or stored solely on your machine.
+          <p style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.4 }}>
+            All SQLite indices, queries, and file contents remain 100% on this machine.
+            Zero telemetry and zero cloud calls.
           </p>
         </div>
 
         <button
-          className="btn-primary"
+          className="btn-open"
           onClick={handleSave}
-          style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 18px", fontSize: 13 }}
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px" }}
         >
-          <Save size={15} />
-          {isSaved ? "Saved!" : "Save Changes"}
+          <Save size={14} />
+          {isSaved ? "Saved!" : "Save Preferences"}
         </button>
       </div>
     </div>

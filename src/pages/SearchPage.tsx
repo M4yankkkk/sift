@@ -85,6 +85,10 @@ export const SearchPage: React.FC = () => {
         query={query}
         onChange={setQuery}
         onClear={() => setQuery("")}
+        activeFilter="all"
+        onFilterChange={() => {}}
+        showPreview={true}
+        onTogglePreview={() => {}}
       />
       <div className="results-split-view">
         <ResultsList

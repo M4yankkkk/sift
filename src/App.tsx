@@ -1,26 +1,41 @@
-import React, { useState, useEffect } from "react";
-import { SearchPage } from "./pages/SearchPage";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { SearchBar, type SearchFilter } from "./components/SearchBar";
+import { ResultsList } from "./components/ResultsList";
+import { PreviewPanel } from "./components/PreviewPanel";
+import { StatusBar } from "./components/StatusBar";
 import { SetupPage } from "./pages/SetupPage";
 import { SettingsPage } from "./pages/SettingsPage";
-import { StatusBar } from "./components/StatusBar";
 import { SiftAPI } from "./services/tauriClient";
-import type { IndexStatus } from "./types/contract";
-import { Search, FolderCheck, Sliders, Sparkles } from "lucide-react";
-
-type Tab = "search" | "setup" | "settings";
+import type {
+  SearchResultItem,
+  PreviewResponse,
+  IndexStatus,
+} from "./types/contract";
 
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<Tab>("search");
+  const [query, setQuery] = useState("");
+  const [activeFilter, setActiveFilter] = useState<SearchFilter>("all");
+  const [showPreview, setShowPreview] = useState(false);
+  const [results, setResults] = useState<SearchResultItem[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [preview, setPreview] = useState<PreviewResponse | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+
+  // Modal sheets
+  const [isFoldersOpen, setIsFoldersOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [indexStatus, setIndexStatus] = useState<IndexStatus | null>(null);
 
-  const fetchStatus = async () => {
+  // Fetch status
+  const fetchStatus = useCallback(async () => {
     try {
       const s = await SiftAPI.getIndexStatus();
       setIndexStatus(s);
     } catch (err) {
-      console.error("Failed to fetch index status:", err);
+      console.error("Failed to fetch status:", err);
     }
-  };
+  }, []);
 
   const handleRefreshScan = async () => {
     try {
@@ -33,59 +48,187 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(fetchStatus, 3000);
+    const interval = setInterval(fetchStatus, 4000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchStatus]);
+
+  // Search logic
+  const performSearch = useCallback(
+    async (q: string, filter: SearchFilter) => {
+      if (!q.trim()) {
+        setResults([]);
+        setSelectedId(null);
+        setPreview(null);
+        return;
+      }
+
+      setIsSearching(true);
+      try {
+        const searchType = filter === "all" ? "hybrid" : filter;
+        const resp = await SiftAPI.searchFiles({
+          query: q,
+          search_type: searchType,
+        });
+        setResults(resp.results);
+        if (resp.results.length > 0) {
+          setSelectedId(resp.results[0].id);
+        } else {
+          setSelectedId(null);
+          setPreview(null);
+        }
+      } catch (err) {
+        console.error("Search failed:", err);
+      } finally {
+        setIsSearching(false);
+      }
+    },
+    []
+  );
+
+  // Debounced search on query or filter change
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      performSearch(query, activeFilter);
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [query, activeFilter, performSearch]);
+
+  const selectedItem = useMemo(() => {
+    return results.find((r) => r.id === selectedId) || null;
+  }, [results, selectedId]);
+
+  // Load preview when selected item changes and preview is open
+  useEffect(() => {
+    if (!selectedItem || !showPreview) {
+      setPreview(null);
+      return;
+    }
+
+    let active = true;
+    setIsPreviewLoading(true);
+
+    SiftAPI.previewResult(selectedItem.id)
+      .then((p) => {
+        if (active) setPreview(p);
+      })
+      .catch((err) => {
+        console.error("Preview failed:", err);
+        if (active) setPreview(null);
+      })
+      .finally(() => {
+        if (active) setIsPreviewLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedItem, showPreview]);
+
+  // Keyboard navigation (ArrowUp, ArrowDown, Enter, Tab, Escape)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape handling
+      if (e.key === "Escape") {
+        if (isFoldersOpen) {
+          setIsFoldersOpen(false);
+          e.preventDefault();
+          return;
+        }
+        if (isSettingsOpen) {
+          setIsSettingsOpen(false);
+          e.preventDefault();
+          return;
+        }
+        if (query) {
+          setQuery("");
+          e.preventDefault();
+          return;
+        }
+      }
+
+      // Tab toggles expandable preview
+      if (e.key === "Tab") {
+        e.preventDefault();
+        setShowPreview((prev) => !prev);
+        return;
+      }
+
+      // Enter opens selected result
+      if (e.key === "Enter" && selectedItem) {
+        e.preventDefault();
+        SiftAPI.openResult(selectedItem.path);
+        return;
+      }
+
+      // Navigation through results
+      if (results.length > 0) {
+        const currentIndex = results.findIndex((r) => r.id === selectedId);
+
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          const nextIndex =
+            currentIndex < results.length - 1 ? currentIndex + 1 : 0;
+          setSelectedId(results[nextIndex].id);
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          const prevIndex =
+            currentIndex > 0 ? currentIndex - 1 : results.length - 1;
+          setSelectedId(results[prevIndex].id);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [results, selectedId, selectedItem, isFoldersOpen, isSettingsOpen, query]);
 
   return (
-    <div className="app-container">
-      {/* Header */}
-      <header className="app-header">
-        <div className="brand-section">
-          <div className="brand-badge">
-            <Sparkles size={14} />
-            SIFT
-          </div>
-          <span style={{ fontSize: 12, color: "var(--text-muted)", letterSpacing: 0.2 }}>
-            Local Desktop Search
-          </span>
-        </div>
+    <div className="floating-window">
+      {/* Top Floating Search Bar */}
+      <SearchBar
+        query={query}
+        onChange={setQuery}
+        onClear={() => setQuery("")}
+        activeFilter={activeFilter}
+        onFilterChange={setActiveFilter}
+        showPreview={showPreview}
+        onTogglePreview={() => setShowPreview((prev) => !prev)}
+      />
 
-        {/* Navigation Tabs */}
-        <nav className="nav-tabs">
-          <button
-            className={`nav-tab-btn ${activeTab === "search" ? "active" : ""}`}
-            onClick={() => setActiveTab("search")}
-          >
-            <Search size={14} />
-            Search
-          </button>
-          <button
-            className={`nav-tab-btn ${activeTab === "setup" ? "active" : ""}`}
-            onClick={() => setActiveTab("setup")}
-          >
-            <FolderCheck size={14} />
-            Folders
-          </button>
-          <button
-            className={`nav-tab-btn ${activeTab === "settings" ? "active" : ""}`}
-            onClick={() => setActiveTab("settings")}
-          >
-            <Sliders size={14} />
-            Settings
-          </button>
-        </nav>
-      </header>
+      {/* Main Content: Compact Results + Expandable Preview Panel */}
+      <main className="launcher-body">
+        <ResultsList
+          results={results}
+          selectedId={selectedId}
+          onSelect={(item) => setSelectedId(item.id)}
+          isLoading={isSearching}
+          withPreview={showPreview}
+        />
 
-      {/* Main Content */}
-      <main className="main-content">
-        {activeTab === "search" && <SearchPage />}
-        {activeTab === "setup" && <SetupPage />}
-        {activeTab === "settings" && <SettingsPage />}
+        {showPreview && (
+          <PreviewPanel
+            item={selectedItem}
+            preview={preview}
+            isLoading={isPreviewLoading}
+          />
+        )}
       </main>
 
-      {/* Persistent Status Bar */}
-      <StatusBar status={indexStatus} onRefreshScan={handleRefreshScan} />
+      {/* Action Bar / Status Footer */}
+      <StatusBar
+        status={indexStatus}
+        onRefreshScan={handleRefreshScan}
+        onOpenFolders={() => setIsFoldersOpen(true)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        isFoldersOpen={isFoldersOpen}
+        isSettingsOpen={isSettingsOpen}
+        showPreview={showPreview}
+        onTogglePreview={() => setShowPreview((prev) => !prev)}
+      />
+
+      {/* Modal Sheets for Folders and Preferences */}
+      {isFoldersOpen && <SetupPage onClose={() => setIsFoldersOpen(false)} />}
+      {isSettingsOpen && <SettingsPage onClose={() => setIsSettingsOpen(false)} />}
     </div>
   );
 };

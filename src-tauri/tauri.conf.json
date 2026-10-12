@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "Sift",
-        "width": 800,
-        "height": 580,
+        "width": 720,
+        "height": 480,
         "resizable": true,
         "fullscreen": false,
         "center": true

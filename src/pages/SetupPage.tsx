@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from "react";
-import { Folder, Plus, Trash2, ShieldCheck, AlertCircle } from "lucide-react";
+import { Folder, Plus, Trash2, FolderCheck, X, AlertCircle } from "lucide-react";
 import { SiftAPI } from "../services/tauriClient";
 import type { RootFolder } from "../types/contract";
 
-export const SetupPage: React.FC = () => {
+interface SetupPageProps {
+  onClose?: () => void;
+}
+
+export const SetupPage: React.FC<SetupPageProps> = ({ onClose }) => {
   const [roots, setRoots] = useState<RootFolder[]>([]);
   const [newPath, setNewPath] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -49,63 +53,73 @@ export const SetupPage: React.FC = () => {
   };
 
   return (
-    <div style={{ flex: 1, padding: 24, overflowY: "auto" }}>
-      <div style={{ maxWidth: 720, margin: "0 auto" }}>
-        <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>
-          Approved Search Roots
-        </h2>
-        <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 20 }}>
-          Sift strictly indexes only folders you approve. Hidden files, build
-          artifacts, and `.git` repositories are excluded by default.
+    <div className="modal-overlay">
+      <div className="modal-header">
+        <div className="modal-title-stack">
+          <FolderCheck size={18} color="var(--accent-violet-light)" />
+          <h3 style={{ fontSize: 15, fontWeight: 600 }}>Approved Search Roots</h3>
+        </div>
+        {onClose && (
+          <button className="modal-close-btn" onClick={onClose} title="Close (Esc)">
+            <X size={15} />
+          </button>
+        )}
+      </div>
+
+      <div className="modal-content-area">
+        <p style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 16, lineHeight: 1.5 }}>
+          Sift strictly indexes only folders you approve. Hidden directories, build
+          artifacts, and `.git` caches are excluded by default.
         </p>
 
         {error && (
           <div
             style={{
-              padding: 12,
-              borderRadius: 8,
-              backgroundColor: "rgba(244, 63, 94, 0.1)",
+              padding: "10px 14px",
+              borderRadius: "var(--radius-sm)",
+              backgroundColor: "rgba(244, 63, 94, 0.12)",
               border: "1px solid var(--accent-rose)",
               color: "var(--accent-rose)",
               display: "flex",
               alignItems: "center",
               gap: 8,
-              marginBottom: 16,
-              fontSize: 13,
+              marginBottom: 14,
+              fontSize: 12,
             }}
           >
-            <AlertCircle size={16} />
+            <AlertCircle size={15} />
             <span>{error}</span>
           </div>
         )}
 
-        <form onSubmit={handleAddRoot} style={{ display: "flex", gap: 10, marginBottom: 24 }}>
+        <form onSubmit={handleAddRoot} style={{ display: "flex", gap: 8, marginBottom: 18 }}>
           <input
             type="text"
-            className="search-input"
+            className="search-input-field"
             style={{
-              backgroundColor: "var(--bg-secondary)",
-              border: "1px solid var(--border-color)",
+              backgroundColor: "var(--bg-surface-elevated)",
+              border: "1px solid var(--border-subtle)",
               borderRadius: "var(--radius-sm)",
-              padding: "10px 14px",
+              padding: "8px 12px",
+              fontSize: 13,
               flex: 1,
             }}
-            placeholder="/home/username/Documents or /path/to/folder"
+            placeholder="/home/username/Documents or folder path..."
             value={newPath}
             onChange={(e) => setNewPath(e.target.value)}
           />
           <button
             type="submit"
-            className="btn-primary"
+            className="btn-open"
             disabled={isLoading || !newPath.trim()}
-            style={{ display: "flex", alignItems: "center", gap: 6 }}
+            style={{ padding: "8px 14px", display: "flex", alignItems: "center", gap: 5 }}
           >
-            <Plus size={15} />
-            Add Folder
+            <Plus size={14} />
+            Add Root
           </button>
         </form>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {roots.map((root) => (
             <div
               key={root.id}
@@ -113,18 +127,20 @@ export const SetupPage: React.FC = () => {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                padding: "12px 16px",
-                backgroundColor: "var(--bg-secondary)",
-                border: "1px solid var(--border-color)",
+                padding: "10px 14px",
+                backgroundColor: "var(--bg-surface)",
+                border: "1px solid var(--border-subtle)",
                 borderRadius: "var(--radius-sm)",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <Folder size={18} color="var(--accent-blue)" />
-                <div>
-                  <div style={{ fontWeight: 500, fontSize: 14 }}>{root.path}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, overflow: "hidden" }}>
+                <Folder size={16} color="var(--accent-violet-light)" />
+                <div style={{ overflow: "hidden" }}>
+                  <div style={{ fontWeight: 500, fontSize: 13, whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}>
+                    {root.path}
+                  </div>
                   <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                    {root.file_count} files indexed • Added {new Date(root.added_at).toLocaleDateString()}
+                    {root.file_count} files • Added {new Date(root.added_at).toLocaleDateString()}
                   </div>
                 </div>
               </div>
@@ -137,10 +153,11 @@ export const SetupPage: React.FC = () => {
                   color: "var(--accent-rose)",
                   cursor: "pointer",
                   padding: 4,
+                  opacity: 0.8,
                 }}
                 title="Remove folder from index"
               >
-                <Trash2 size={16} />
+                <Trash2 size={14} />
               </button>
             </div>
           ))}
@@ -148,18 +165,15 @@ export const SetupPage: React.FC = () => {
           {roots.length === 0 && (
             <div
               style={{
-                padding: 32,
+                padding: 24,
                 textAlign: "center",
-                border: "1px dashed var(--border-color)",
+                border: "1px dashed var(--border-subtle)",
                 borderRadius: "var(--radius-md)",
                 color: "var(--text-muted)",
+                fontSize: 13,
               }}
             >
-              <ShieldCheck size={28} style={{ margin: "0 auto 8px auto", opacity: 0.6 }} />
-              <p style={{ fontSize: 14 }}>No search roots configured yet.</p>
-              <p style={{ fontSize: 12, marginTop: 4 }}>
-                Add your document or project directories above to begin indexing.
-              </p>
+              No folders added yet. Add a directory above to start indexing.
             </div>
           )}
         </div>
