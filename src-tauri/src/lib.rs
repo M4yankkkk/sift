@@ -19,7 +19,10 @@ pub fn run() {
 
     // Determine database path in user data directory or local fallback
     let db_path = std::env::var("SIFT_DB_PATH").unwrap_or_else(|_| "sift.db".to_string());
-    let db = Database::open(&db_path).expect("Failed to initialize SQLite database");
+    let embedding_engine = sift_core::create_default_embedding_engine();
+    let db = Database::open(&db_path)
+        .expect("Failed to initialize SQLite database")
+        .with_embedding_engine(Some(embedding_engine));
 
     let app_state = AppState::new(db);
 

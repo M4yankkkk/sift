@@ -351,6 +351,18 @@ body {
   background: rgba(245, 158, 11, 0.22);
 }
 
+.badge-tag.badge-semantic {
+  color: #c084fc;
+  border-color: rgba(192, 132, 252, 0.35);
+  background: rgba(168, 85, 247, 0.15);
+}
+
+.result-item.selected .badge-tag.badge-semantic {
+  color: #e9d5ff;
+  border-color: rgba(192, 132, 252, 0.55);
+  background: rgba(168, 85, 247, 0.28);
+}
+
 /* Expandable Preview Panel */
 .preview-container {
   flex: 0 0 46%;

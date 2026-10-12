@@ -11,10 +11,22 @@ use crate::extract::extract_document_chunks;
 use crate::tantivy_index::TantivySearchIndex;
 use std::collections::HashMap;
 
+#[derive(Debug, Clone)]
+pub struct VectorSearchResult {
+    pub file_id: String,
+    pub path: String,
+    pub filename: String,
+    pub score: f32,
+    pub modality: String,
+    pub snippet: String,
+    pub page_number: Option<i32>,
+}
+
 #[derive(Clone)]
 pub struct Database {
     conn: Arc<Mutex<Connection>>,
     pub text_index: Option<Arc<TantivySearchIndex>>,
+    pub embedding_engine: Option<Arc<dyn crate::embeddings::EmbeddingEngine>>,
 }
 
 impl Database {
@@ -41,6 +53,7 @@ impl Database {
         let db = Self {
             conn: Arc::new(Mutex::new(conn)),
             text_index,
+            embedding_engine: None,
         };
         db.init_schema()?;
         Ok(db)
@@ -59,6 +72,7 @@ impl Database {
         let db = Self {
             conn: Arc::new(Mutex::new(conn)),
             text_index,
+            embedding_engine: None,
         };
         db.init_schema()?;
         Ok(db)
@@ -66,6 +80,14 @@ impl Database {
 
     pub fn with_text_index(mut self, text_index: Option<Arc<TantivySearchIndex>>) -> Self {
         self.text_index = text_index;
+        self
+    }
+
+    pub fn with_embedding_engine(
+        mut self,
+        embedding_engine: Option<Arc<dyn crate::embeddings::EmbeddingEngine>>,
+    ) -> Self {
+        self.embedding_engine = embedding_engine;
         self
     }
 
@@ -120,6 +142,21 @@ impl Database {
                 confidence REAL NOT NULL,
                 regions_json TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS chunk_embeddings (
+                id TEXT PRIMARY KEY,
+                file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+                chunk_index INTEGER NOT NULL,
+                modality TEXT NOT NULL,
+                page_number INTEGER,
+                line_number INTEGER,
+                snippet TEXT NOT NULL,
+                embedding BLOB NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_embeddings_file_id ON chunk_embeddings(file_id);
+            CREATE INDEX IF NOT EXISTS idx_embeddings_modality ON chunk_embeddings(modality);
 
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
@@ -316,39 +353,67 @@ impl Database {
             tx.commit()?;
         } // MutexGuard is dropped here before Tantivy chunk ingestion
 
-        // If Tantivy full-text index is active, ingest and index document chunks
-        if let Some(ref text_index) = self.text_index {
-            for (path, filename, extension, id) in file_records_to_index {
-                if crate::ocr::is_ocr_supported_extension(&extension) {
-                    if let Ok(Some(ocr_res)) = crate::ocr::extract_image_ocr(Path::new(&path)) {
-                        if !ocr_res.full_text.trim().is_empty() {
-                            let regions_json =
-                                serde_json::to_string(&ocr_res.regions).unwrap_or_default();
-                            {
-                                let conn = self.conn.lock().unwrap();
-                                let _ = conn.execute(
-                                    r#"
-                                    INSERT INTO ocr_data (file_id, full_text, confidence, regions_json)
-                                    VALUES (?1, ?2, ?3, ?4)
-                                    ON CONFLICT(file_id) DO UPDATE SET
-                                        full_text = excluded.full_text,
-                                        confidence = excluded.confidence,
-                                        regions_json = excluded.regions_json
-                                    "#,
-                                    params![
-                                        id,
-                                        ocr_res.full_text,
-                                        ocr_res.average_confidence as f64,
-                                        regions_json,
-                                    ],
-                                );
-                            }
+        // Ingest and index document chunks into Tantivy and vector embeddings
+        for (path, filename, extension, id) in file_records_to_index {
+            let is_image = crate::embeddings::is_image_supported_for_vision(&extension);
+            let is_ocr = crate::ocr::is_ocr_supported_extension(&extension);
 
+            // 1. If it's an image, embed visual vector if embedding engine is active
+            if is_image {
+                if let Some(ref engine) = self.embedding_engine {
+                    if let Ok(img_vec) = engine.embed_image(Path::new(&path)) {
+                        let blob = crate::embeddings::serialize_vector(&img_vec);
+                        let emb_id = Uuid::new_v4().to_string();
+                        let now = Utc::now().timestamp();
+                        let conn = self.conn.lock().unwrap();
+                        let _ = conn.execute(
+                            "DELETE FROM chunk_embeddings WHERE file_id = ?1 AND modality = 'image'",
+                            params![id],
+                        );
+                        let _ = conn.execute(
+                            r#"
+                            INSERT INTO chunk_embeddings (id, file_id, chunk_index, modality, page_number, line_number, snippet, embedding, created_at)
+                            VALUES (?1, ?2, 0, 'image', NULL, NULL, ?3, ?4, ?5)
+                            "#,
+                            params![emb_id, id, filename, blob, now],
+                        );
+                    }
+                }
+            }
+
+            // 2. If OCR is supported on this image, extract text
+            if is_ocr {
+                if let Ok(Some(ocr_res)) = crate::ocr::extract_image_ocr(Path::new(&path)) {
+                    if !ocr_res.full_text.trim().is_empty() {
+                        let regions_json =
+                            serde_json::to_string(&ocr_res.regions).unwrap_or_default();
+                        {
+                            let conn = self.conn.lock().unwrap();
+                            let _ = conn.execute(
+                                r#"
+                                INSERT INTO ocr_data (file_id, full_text, confidence, regions_json)
+                                VALUES (?1, ?2, ?3, ?4)
+                                ON CONFLICT(file_id) DO UPDATE SET
+                                    full_text = excluded.full_text,
+                                    confidence = excluded.confidence,
+                                    regions_json = excluded.regions_json
+                                "#,
+                                params![
+                                    id,
+                                    ocr_res.full_text,
+                                    ocr_res.average_confidence as f64,
+                                    regions_json,
+                                ],
+                            );
+                        }
+
+                        // Index in Tantivy
+                        if let Some(ref text_index) = self.text_index {
                             let chunk = crate::extract::DocumentChunk {
                                 chunk_index: 0,
                                 page_number: None,
                                 line_number: None,
-                                content: ocr_res.full_text,
+                                content: ocr_res.full_text.clone(),
                             };
                             let _ = text_index.upsert_file_chunks(
                                 &id,
@@ -358,22 +423,95 @@ impl Database {
                                 &[chunk],
                             );
                         }
+
+                        // Embed OCR text if embedding engine is active
+                        if let Some(ref engine) = self.embedding_engine {
+                            if let Ok(ocr_vec) = engine.embed_text(&ocr_res.full_text) {
+                                let blob = crate::embeddings::serialize_vector(&ocr_vec);
+                                let emb_id = Uuid::new_v4().to_string();
+                                let now = Utc::now().timestamp();
+                                let snippet = if ocr_res.full_text.len() > 250 {
+                                    format!("{}...", &ocr_res.full_text[..247])
+                                } else {
+                                    ocr_res.full_text.clone()
+                                };
+                                let conn = self.conn.lock().unwrap();
+                                let _ = conn.execute(
+                                    "DELETE FROM chunk_embeddings WHERE file_id = ?1 AND modality = 'ocr'",
+                                    params![id],
+                                );
+                                let _ = conn.execute(
+                                    r#"
+                                    INSERT INTO chunk_embeddings (id, file_id, chunk_index, modality, page_number, line_number, snippet, embedding, created_at)
+                                    VALUES (?1, ?2, 0, 'ocr', NULL, NULL, ?3, ?4, ?5)
+                                    "#,
+                                    params![emb_id, id, snippet, blob, now],
+                                );
+                            }
+                        }
                     }
-                } else {
-                    let chunks = extract_document_chunks(Path::new(&path)).unwrap_or_default();
-                    if !chunks.is_empty() {
-                        let modality = if extension == "pdf" {
-                            "pdf"
-                        } else if crate::extract::is_text_or_code_extension(&extension) {
-                            "code"
-                        } else {
-                            "text"
-                        };
+                }
+            } else {
+                // 3. Document or source code file
+                let chunks = extract_document_chunks(Path::new(&path)).unwrap_or_default();
+                if !chunks.is_empty() {
+                    let modality = if extension == "pdf" {
+                        "pdf"
+                    } else if crate::extract::is_text_or_code_extension(&extension) {
+                        "code"
+                    } else {
+                        "text"
+                    };
+
+                    if let Some(ref text_index) = self.text_index {
                         let _ =
                             text_index.upsert_file_chunks(&id, &path, &filename, modality, &chunks);
                     }
+
+                    if let Some(ref engine) = self.embedding_engine {
+                        let conn = self.conn.lock().unwrap();
+                        let _ = conn.execute(
+                            "DELETE FROM chunk_embeddings WHERE file_id = ?1 AND modality != 'image'",
+                            params![id],
+                        );
+                        drop(conn);
+
+                        for chunk in &chunks {
+                            if let Ok(chunk_vec) = engine.embed_text(&chunk.content) {
+                                let blob = crate::embeddings::serialize_vector(&chunk_vec);
+                                let emb_id = Uuid::new_v4().to_string();
+                                let now = Utc::now().timestamp();
+                                let snippet = if chunk.content.len() > 250 {
+                                    format!("{}...", &chunk.content[..247])
+                                } else {
+                                    chunk.content.clone()
+                                };
+                                let conn = self.conn.lock().unwrap();
+                                let _ = conn.execute(
+                                    r#"
+                                    INSERT INTO chunk_embeddings (id, file_id, chunk_index, modality, page_number, line_number, snippet, embedding, created_at)
+                                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                                    "#,
+                                    params![
+                                        emb_id,
+                                        id,
+                                        chunk.chunk_index,
+                                        modality,
+                                        chunk.page_number,
+                                        chunk.line_number,
+                                        snippet,
+                                        blob,
+                                        now,
+                                    ],
+                                );
+                            }
+                        }
+                    }
                 }
             }
+        }
+
+        if let Some(ref text_index) = self.text_index {
             let _ = text_index.commit();
         }
 
@@ -457,7 +595,57 @@ impl Database {
         Ok(results)
     }
 
-    /// Unified search coordinating fast SQLite filename lookup and Tantivy full-text index.
+    pub fn search_vectors(
+        &self,
+        query_vec: &[f32],
+        limit: usize,
+    ) -> Result<Vec<VectorSearchResult>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT e.file_id, f.path, f.filename, e.modality, e.snippet, e.page_number, e.embedding
+            FROM chunk_embeddings e
+            JOIN files f ON e.file_id = f.id
+            WHERE f.is_deleted = 0
+            "#,
+        )?;
+
+        let mut candidates = Vec::new();
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            let file_id: String = row.get(0)?;
+            let path: String = row.get(1)?;
+            let filename: String = row.get(2)?;
+            let modality: String = row.get(3)?;
+            let snippet: String = row.get(4)?;
+            let page_number: Option<i32> = row.get(5)?;
+            let blob: Vec<u8> = row.get(6)?;
+
+            let vec = crate::embeddings::deserialize_vector(&blob);
+            let sim = crate::embeddings::cosine_similarity(query_vec, &vec);
+            if sim > 0.35 {
+                candidates.push(VectorSearchResult {
+                    file_id,
+                    path,
+                    filename,
+                    score: sim,
+                    modality,
+                    snippet,
+                    page_number,
+                });
+            }
+        }
+
+        candidates.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        candidates.truncate(limit);
+        Ok(candidates)
+    }
+
+    /// Unified search coordinating fast SQLite filename lookup, Tantivy full-text index, and semantic vector similarity.
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchResultItem>> {
         let q_trimmed = query.trim();
         if q_trimmed.is_empty() {
@@ -474,11 +662,22 @@ impl Database {
             Vec::new()
         };
 
-        if text_hits.is_empty() {
+        // 3. Semantic vector hits
+        let vector_hits = if let Some(ref engine) = self.embedding_engine {
+            if let Ok(q_vec) = engine.embed_text(q_trimmed) {
+                self.search_vectors(&q_vec, limit).unwrap_or_default()
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+
+        if text_hits.is_empty() && vector_hits.is_empty() {
             return Ok(filename_matches);
         }
 
-        // 3. Deduplicate and merge
+        // 4. Deduplicate and merge
         let mut merged: HashMap<String, SearchResultItem> = HashMap::new();
 
         // Add filename matches
@@ -547,6 +746,74 @@ impl Database {
                             match_type,
                             match_reasons: vec![format!("Full-text match ({})", provenance)],
                             snippet: Some(hit.snippet),
+                            page_number: hit.page_number,
+                        },
+                    );
+                }
+            }
+        }
+
+        // Merge semantic vector hits
+        for hit in vector_hits {
+            let is_visual = hit.modality == "image";
+            if let Some(existing) = merged.get_mut(&hit.file_id) {
+                // Both previous matches and semantic matched
+                existing.score += hit.score * 0.35;
+                let reason = if is_visual {
+                    format!(
+                        "Visual semantic match ({:.0}% relevance)",
+                        hit.score * 100.0
+                    )
+                } else {
+                    format!(
+                        "Semantic concept match ({:.0}% relevance)",
+                        hit.score * 100.0
+                    )
+                };
+                existing.match_reasons.push(reason);
+                if existing.snippet.is_none() {
+                    existing.snippet = Some(hit.snippet);
+                }
+                if existing.page_number.is_none() {
+                    existing.page_number = hit.page_number;
+                }
+            } else {
+                // Only semantic matched
+                if let Ok(Some(file_rec)) = self.get_file_by_id(&hit.file_id) {
+                    if file_rec.is_deleted {
+                        continue;
+                    }
+                    let (reason, snippet) = if is_visual {
+                        (
+                            format!(
+                                "Visual semantic match ({:.0}% similarity)",
+                                hit.score * 100.0
+                            ),
+                            Some(format!("Visual contents match \"{}\"", q_trimmed)),
+                        )
+                    } else {
+                        (
+                            format!(
+                                "Semantic concept match ({:.0}% similarity)",
+                                hit.score * 100.0
+                            ),
+                            Some(hit.snippet),
+                        )
+                    };
+
+                    merged.insert(
+                        hit.file_id.clone(),
+                        SearchResultItem {
+                            id: hit.file_id,
+                            path: hit.path,
+                            filename: hit.filename,
+                            extension: file_rec.extension,
+                            size_bytes: file_rec.size_bytes,
+                            modified_at: file_rec.modified_at,
+                            score: 0.50 + (hit.score * 0.40),
+                            match_type: MatchType::Semantic,
+                            match_reasons: vec![reason],
+                            snippet,
                             page_number: hit.page_number,
                         },
                     );

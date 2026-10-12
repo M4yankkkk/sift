@@ -114,7 +114,15 @@ export const ResultsList: React.FC<ResultsListProps> = ({
             </div>
 
             <div className="result-meta-right">
-              <span className={`badge-tag ${item.match_type === "ocr" ? "badge-ocr" : ""}`}>
+              <span
+                className={`badge-tag ${
+                  item.match_type === "ocr"
+                    ? "badge-ocr"
+                    : item.match_type === "semantic"
+                    ? "badge-semantic"
+                    : ""
+                }`}
+              >
                 {item.match_type}
               </span>
               {isSelected && (

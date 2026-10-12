@@ -332,16 +332,26 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
         </div>
       </div>
 
-      {/* Matched Snippet Callout (if available) */}
-      {item.snippet && (
+      {/* Matched Snippet & Reasons Callout */}
+      {(item.snippet || (item.match_reasons && item.match_reasons.length > 0)) && (
         <div className="matched-snippet-callout">
-          <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4, fontWeight: 600 }}>
-            <Sparkles size={12} />
-            Matched Context:
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4, fontWeight: 600 }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              <Sparkles size={12} color="var(--accent-violet-light)" />
+              {item.match_type === "semantic" ? "Semantic Match Context:" : "Matched Context:"}
+            </span>
+            {item.match_reasons && item.match_reasons.length > 0 && (
+              <span style={{ fontSize: 10, color: "var(--accent-violet-light)", fontWeight: 500 }}>
+                {item.match_reasons[0]}
+              </span>
+            )}
           </div>
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 11.5 }}>
-            {item.snippet}
-          </div>
+          {item.snippet && (
+            <div
+              style={{ fontFamily: "var(--font-mono)", fontSize: 11.5 }}
+              dangerouslySetInnerHTML={{ __html: item.snippet }}
+            />
+          )}
         </div>
       )}
 

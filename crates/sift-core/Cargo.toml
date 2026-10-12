@@ -18,6 +18,7 @@ walkdir.workspace = true
 notify.workspace = true
 crossbeam-channel.workspace = true
 tantivy.workspace = true
+fastembed = "7.1.1"
 
 [dev-dependencies]
 tempfile.workspace = true

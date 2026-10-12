@@ -1,3 +1,4 @@
+pub mod embeddings;
 pub mod error;
 pub mod extract;
 pub mod models;
@@ -7,6 +8,11 @@ pub mod storage;
 pub mod tantivy_index;
 pub mod watcher;
 
+pub use embeddings::{
+    cosine_similarity, create_default_embedding_engine, deserialize_vector,
+    is_image_supported_for_vision, normalize_vector, serialize_vector, DeterministicMockEngine,
+    EmbeddingEngine, FastEmbedEngine,
+};
 pub use error::{Result, SiftError};
 pub use extract::{extract_document_chunks, DocumentChunk};
 pub use models::*;

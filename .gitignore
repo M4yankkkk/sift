@@ -32,3 +32,7 @@ Thumbs.db
 sift_tantivy_index/
 **/sift_tantivy_index/
 data/
+.fastembed_cache/
+**/.fastembed_cache/
+models/
+**/models/
