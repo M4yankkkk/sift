@@ -6,7 +6,8 @@ pub mod storage;
 pub use error::{Result, SiftError};
 pub use models::*;
 pub use scanner::{
-    read_file_metadata, read_file_preview, scan_directory, FileMeta, PathRuleChecker,
+    extract_pdf_preview, read_file_metadata, read_file_preview, render_pdf_first_page,
+    scan_directory, FileMeta, PathRuleChecker,
 };
 pub use storage::Database;
 

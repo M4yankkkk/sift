@@ -154,10 +154,30 @@ pub async fn preview_result(
         .ok_or_else(|| SiftError::PathNotFound(format!("File with id {} not found", file_id)))?;
 
     let path = Path::new(&file.path);
-    let preview_content = sift_core::read_file_preview(path, 65536)
-        .unwrap_or_else(|e| format!("[Preview error: {}]", e));
-
     let ext = file.extension.to_lowercase();
+    let (preview_content, snippet, page_number) = if ext == "pdf" {
+        let visual = sift_core::render_pdf_first_page(path);
+        let text = sift_core::extract_pdf_preview(path, 16384);
+        match (visual, text) {
+            (Some(v), Some(t)) => (v, Some(t), Some(1)),
+            (Some(v), None) => (v, None, Some(1)),
+            (None, Some(t)) => (t, None, Some(1)),
+            (None, None) => (
+                "[PDF Document — Scanned or graphic document. Open with default viewer to read]"
+                    .to_string(),
+                None,
+                Some(1),
+            ),
+        }
+    } else {
+        (
+            sift_core::read_file_preview(path, 65536)
+                .unwrap_or_else(|e| format!("[Preview error: {}]", e)),
+            None,
+            None,
+        )
+    };
+
     let mime_type = match ext.as_str() {
         "md" => "text/markdown",
         "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "c" | "cpp" | "h" | "hpp" | "go" | "java"
@@ -182,8 +202,8 @@ pub async fn preview_result(
         mime_type: mime_type.to_string(),
         size_bytes: file.size_bytes,
         preview_content,
-        snippet: None,
-        page_number: None,
+        snippet,
+        page_number,
     })
 }
 

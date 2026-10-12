@@ -23,6 +23,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
   isLoading = false,
 }) => {
   const [imgDims, setImgDims] = useState<{ width: number; height: number } | null>(null);
+  const [pdfTab, setPdfTab] = useState<"visual" | "text">("visual");
 
   if (!item) {
     return (
@@ -114,44 +115,68 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
 
     // 2. PDF Document Preview
     if (isPdf) {
-      const isScannedOrEmpty =
-        preview.preview_content.includes("Scanned or graphic document") ||
-        isBinaryContent ||
-        !preview.preview_content.trim();
-
-      if (isScannedOrEmpty) {
-        return (
-          <div className="binary-card">
-            <div className="binary-card-icon" style={{ color: "var(--accent-rose)", borderColor: "rgba(244, 63, 94, 0.3)", background: "rgba(244, 63, 94, 0.1)" }}>
-              <FileText size={24} />
-            </div>
-            <div className="binary-card-title">PDF Document</div>
-            <div className="binary-card-desc">
-              Visual or scanned PDF without an embedded text layer. Open in your system document viewer to read.
-            </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-              <button className="btn-open" onClick={handleOpen}>
-                <ExternalLink size={13} />
-                Open PDF (Enter)
-              </button>
-              <button className="btn-reveal" onClick={handleReveal}>
-                <FolderOpen size={13} />
-                Reveal
-              </button>
-            </div>
-          </div>
-        );
-      }
+      const hasVisual = preview.preview_content?.startsWith("data:image/");
+      const textContent = preview.snippet || (!hasVisual ? preview.preview_content : "");
 
       return (
         <div className="pdf-preview-wrapper">
-          <div className="pdf-badge-header">
-            <FileText size={13} />
-            <span>PDF Document • Text Excerpt (Pages 1–5)</span>
+          <div className="pdf-top-controls">
+            <div className="pdf-badge-header">
+              <FileText size={13} />
+              <span>PDF • Page 1 Preview</span>
+            </div>
+
+            {hasVisual && textContent && (
+              <div className="pdf-toggle-group">
+                <button
+                  className={`pdf-toggle-btn ${pdfTab === "visual" ? "active" : ""}`}
+                  onClick={() => setPdfTab("visual")}
+                >
+                  Visual
+                </button>
+                <button
+                  className={`pdf-toggle-btn ${pdfTab === "text" ? "active" : ""}`}
+                  onClick={() => setPdfTab("text")}
+                >
+                  Text
+                </button>
+              </div>
+            )}
           </div>
-          <div className="preview-code-block">
-            {preview.preview_content}
-          </div>
+
+          {pdfTab === "visual" && hasVisual ? (
+            <div className="preview-image-viewport">
+              <img
+                src={preview.preview_content}
+                alt={item.filename}
+                className="preview-image-element"
+              />
+            </div>
+          ) : textContent ? (
+            <div className="preview-code-block">
+              {textContent}
+            </div>
+          ) : (
+            <div className="binary-card">
+              <div className="binary-card-icon" style={{ color: "var(--accent-rose)", borderColor: "rgba(244, 63, 94, 0.3)", background: "rgba(244, 63, 94, 0.1)" }}>
+                <FileText size={24} />
+              </div>
+              <div className="binary-card-title">PDF Document</div>
+              <div className="binary-card-desc">
+                Visual or scanned PDF without an embedded text layer. Open in your system document viewer to read.
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                <button className="btn-open" onClick={handleOpen}>
+                  <ExternalLink size={13} />
+                  Open PDF (Enter)
+                </button>
+                <button className="btn-reveal" onClick={handleReveal}>
+                  <FolderOpen size={13} />
+                  Reveal
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       );
     }

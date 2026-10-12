@@ -178,7 +178,28 @@ pub fn get_image_mime(ext: &str) -> Option<&'static str> {
     }
 }
 
-fn extract_pdf_preview(path: &Path, max_bytes: usize) -> Option<String> {
+pub fn render_pdf_first_page(path: &Path) -> Option<String> {
+    use std::process::Command;
+    let output = Command::new("pdftoppm")
+        .arg("-png")
+        .arg("-f")
+        .arg("1")
+        .arg("-l")
+        .arg("1")
+        .arg("-scale-to")
+        .arg("800")
+        .arg(path)
+        .output()
+        .ok()?;
+
+    if output.status.success() && !output.stdout.is_empty() {
+        let b64 = base64_encode(&output.stdout);
+        return Some(format!("data:image/png;base64,{}", b64));
+    }
+    None
+}
+
+pub fn extract_pdf_preview(path: &Path, max_bytes: usize) -> Option<String> {
     use std::process::Command;
     let output = Command::new("pdftotext")
         .arg("-l")
@@ -229,8 +250,11 @@ pub fn read_file_preview(path: &Path, max_bytes: usize) -> Result<String> {
         return Ok(format!("data:{};base64,{}", mime, b64));
     }
 
-    // 2. PDF preview: extract readable text from first 5 pages
+    // 2. PDF preview: first try visual render of page 1, fallback to text
     if ext == "pdf" {
+        if let Some(visual_data_url) = render_pdf_first_page(path) {
+            return Ok(visual_data_url);
+        }
         if let Some(text) = extract_pdf_preview(path, max_bytes) {
             return Ok(text);
         }

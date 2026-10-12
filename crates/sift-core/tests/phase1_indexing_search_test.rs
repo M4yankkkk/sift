@@ -101,7 +101,11 @@ fn test_phase1_end_to_end_indexing_and_search() {
 
     let pdf_file_path = fixtures.join("documents").join("minimal_passage.pdf");
     let pdf_preview = read_file_preview(&pdf_file_path, 4096).expect("read pdf preview");
-    assert!(pdf_preview.contains("Quantum indexing benchmark") || pdf_preview.contains("PDF Document"));
+    assert!(
+        pdf_preview.starts_with("data:image/png;base64,")
+            || pdf_preview.contains("Quantum indexing benchmark")
+            || pdf_preview.contains("PDF Document")
+    );
 
     let corrupt_file_path = fixtures.join("corrupted").join("corrupt_file.bin");
     let corrupt_preview =
