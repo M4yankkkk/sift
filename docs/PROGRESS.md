@@ -1,6 +1,6 @@
 # Sift — Implementation Progress
 
-## Current Phase: Phase 2 Completed
+## Current Phase: Phase 4 Completed
 
 ### 1. Completed in Phase 0 (Foundation and Decisions)
 - [x] **Project Repository & Modular Scaffold**: Root Cargo workspace (`crates/sift-core` + `src-tauri` + React TS).
@@ -82,17 +82,43 @@
 
 ---
 
-### 5. Test Verification Results
+### 5. Completed in Phase 4 (Screenshot OCR & Visual Bounding Boxes)
+- [x] **Offline OCR Extraction Pipeline (`crates/sift-core/src/ocr.rs`)**:
+  - User-space Tesseract 5.3.4 engine with local English training data (`eng.traineddata`).
+  - Strict 100% offline execution; zero cloud APIs or telemetry.
+  - TSV stream parser extracting word text, confidence percentage, and pixel bounding boxes (`left`, `top`, `width`, `height`).
+  - Defensive error handling: Skips empty images and files exceeding 15MB limit without panicking.
+- [x] **Unified Catalog & Search Indexing (`crates/sift-core/src/storage.rs`)**:
+  - SQLite `ocr_data` table storing extracted text, average confidence, and serialized word regions.
+  - Ingestion into Tantivy index under `modality = "ocr"`.
+  - Search engine tags OCR text matches with `match_type: "ocr"` and `"Screenshot OCR match"` reasons.
+  - Cascading deletion and cleanup when screenshot files are modified or deleted.
+- [x] **Interactive Frontend Overlay & Preview (`PreviewPanel.tsx`, `ResultsList.tsx`, `index.css`)**:
+  - Amber `ocr` badge tag styling in results list.
+  - Exact proportional percentage bounding boxes overlaid directly on image previews.
+  - Word tooltip displaying confidence scores.
+  - Interactive toggle button (`OCR Boxes (N)`) to toggle bounding boxes on/off.
+  - OCR text snippet card displaying extracted text with highlighted match phrases.
+- [x] **Phase 4 Integration Test Suite (`crates/sift-core/tests/phase4_ocr_search_test.rs`)**:
+  - Tested word extraction and bounding box accuracy on deterministic fixtures (`screenshot_error_404.png`, `security_audit_memo.png`).
+  - Tested OCR search ranking and snippet generation.
+  - Tested deletion invalidation and cascade cleanup.
+  - Tested corrupted image files and file size bounds.
+
+---
+
+### 6. Test Verification Results
 
 | Suite | Command | Result | Notes |
 |---|---|---|---|
 | Rust Formatting | `cargo fmt --all -- --check` | **PASS** | Clean code formatting |
 | Rust Linter (Clippy) | `cargo clippy --workspace -- -D warnings` | **PASS** | Zero clippy warnings |
-| Core Unit Tests | `cargo test -p sift-core` | **PASS** (16/16 passed) | Models, storage, scanner, preview, extract, tantivy |
+| Core Unit Tests | `cargo test -p sift-core` | **PASS** (18/18 passed) | Models, storage, scanner, preview, extract, tantivy, ocr |
 | Fixtures Tests | `cargo test -p sift-core --test fixtures_test` | **PASS** (2/2 passed) | Fixture properties & exclusions |
 | Phase 1 E2E Test | `cargo test -p sift-core --test phase1_indexing_search_test` | **PASS** (1/1 passed) | Full index, search, preview, and root cleanup |
 | Phase 2 E2E Test | `cargo test -p sift-core --test phase2_incremental_indexing_test` | **PASS** (1/1 passed) | Create, modify, rename, delete, prune, reconcile |
 | Phase 3 E2E Test | `cargo test -p sift-core --test phase3_fulltext_search_test` | **PASS** (5/5 passed) | Code/doc phrases, PDF page provenance, invalidation, fused ranking |
+| Phase 4 E2E Test | `cargo test -p sift-core --test phase4_ocr_search_test` | **PASS** (5/5 passed) | OCR extraction, bounding boxes, search hit, deletion cleanup, limits |
 | Synthetic Latency Benchmark | `cargo test -p sift-core --test benchmark_test` | **PASS** (1/1 passed) | Avg 0.52ms, p95 1.54ms on 10k files |
 | Frontend Typecheck | `npm run check` | **PASS** | TypeScript compiles cleanly with 0 errors |
 | Frontend Vitest | `npm test` (`vitest run`) | **PASS** (5/5 passed) | Contract & client test suite |
@@ -100,8 +126,22 @@
 
 ---
 
-### 6. Next Phase: Phase 4 — Screenshot OCR
-- PNG/JPEG text extraction using local, offline OCR engine (e.g. Tesseract or embedded OCR).
-- Bounding box and confidence scoring.
-- Screenshot preview and match region highlighting.
-- Failure handling for noisy, skewed, or unreadable images.
+### 7. Next Phase: Phase 5 — Semantic Retrieval
+
+**Goal:** Enable natural-language conceptual searching (paraphrased queries finding relevant passages even when exact keywords don't match) using a lightweight, 100% offline local embedding model.
+
+**Scope & Architectural Gates:**
+1. **Model Evaluation & Adapter**:
+   - Evaluate a lightweight, fast, CPU-capable local embedding model (such as `all-MiniLM-L6-v2` or `bge-small-en-v1.5` via ONNX Runtime / `ort` or GGUF) and define an interchangeable adapter interface.
+   - Strictly local inference; zero network calls during search.
+2. **Vector Store & Indexing**:
+   - Embed document chunks (code, text, PDF, OCR) asynchronously in background worker.
+   - Vector storage in SQLite (`sqlite-vec` or compact cosine similarity table).
+3. **Hybrid Search Fusion (RRF)**:
+   - Reciprocal Rank Fusion (RRF) combining:
+     - Exact filename matches (highest priority)
+     - Tantivy BM25 keyword matches
+     - Semantic vector nearest neighbors
+4. **Resilience & Resource Safeguards**:
+   - App remains fully functional if embeddings are disabled or model is not downloaded.
+   - Bounded CPU/memory usage (<150MB peak RAM during inference).
