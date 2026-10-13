@@ -168,6 +168,12 @@ export const App: React.FC = () => {
         return;
       }
 
+      if (e.ctrlKey && (e.key === "F" || (e.shiftKey && e.key.toLowerCase() === "f"))) {
+        e.preventDefault();
+        setIsFoldersOpen((prev) => !prev);
+        return;
+      }
+
       // Focus search input on Ctrl+L
       if (e.ctrlKey && e.key.toLowerCase() === "l") {
         e.preventDefault();

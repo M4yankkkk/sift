@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Cpu, Zap, Shield, Save, X, RefreshCw } from "lucide-react";
+import { Cpu, Zap, Shield, Save, X, RefreshCw, Keyboard } from "lucide-react";
 import { SiftAPI } from "../services/tauriClient";
 import { SiftBrandmark } from "../components/SiftLogo";
 import type { AppSettings, IndexStatus, ResourceMode } from "../types/contract";
@@ -118,6 +118,172 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               setSettings({ ...settings, global_shortcut: e.target.value })
             }
           />
+        </div>
+
+        {/* Keyboard Shortcuts Reference */}
+        <div
+          style={{
+            backgroundColor: "var(--bg-surface)",
+            border: "1px solid var(--border-subtle)",
+            borderRadius: "var(--radius-sm)",
+            padding: 14,
+            marginBottom: 14,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+            <Keyboard size={15} color="var(--accent-violet-light)" />
+            <span style={{ fontWeight: 600, fontSize: 13 }}>Keyboard Shortcuts Reference</span>
+          </div>
+          <p style={{ fontSize: 11.5, color: "var(--text-muted)", marginBottom: 12 }}>
+            Sift is 100% keyboard-navigable without needing a mouse.
+          </p>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            {/* Search & Navigation */}
+            <div
+              style={{
+                backgroundColor: "var(--bg-surface-elevated)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "var(--radius-xs)",
+                padding: "10px 12px",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 10.5,
+                  fontWeight: 600,
+                  color: "var(--accent-violet-light)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.5px",
+                  marginBottom: 8,
+                }}
+              >
+                Search &amp; Navigation
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 7, fontSize: 11.5 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: "var(--text-secondary)" }}>Navigate results</span>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <span className="keycap">↓</span>
+                    <span className="keycap">↑</span>
+                  </div>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: "var(--text-secondary)" }}>Next / Prev (Vim)</span>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <span className="keycap">Ctrl+N</span>
+                    <span className="keycap">Ctrl+P</span>
+                  </div>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: "var(--text-secondary)" }}>Focus search bar</span>
+                  <span className="keycap">Ctrl+L</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: "var(--text-secondary)" }}>Toggle preview panel</span>
+                  <span className="keycap">Tab</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Actions & Execution */}
+            <div
+              style={{
+                backgroundColor: "var(--bg-surface-elevated)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "var(--radius-xs)",
+                padding: "10px 12px",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 10.5,
+                  fontWeight: 600,
+                  color: "var(--accent-emerald)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.5px",
+                  marginBottom: 8,
+                }}
+              >
+                Actions &amp; Opening
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 7, fontSize: 11.5 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: "var(--text-secondary)" }}>Open file</span>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <span className="keycap">↵ Enter</span>
+                    <span className="keycap">Ctrl+O</span>
+                  </div>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: "var(--text-secondary)" }}>Reveal in folder</span>
+                  <span className="keycap">Ctrl+R</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: "var(--text-secondary)" }}>Preferences</span>
+                  <span className="keycap">Ctrl+,</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: "var(--text-secondary)" }}>Manage Folders</span>
+                  <span className="keycap">Ctrl+Shift+F</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Dismissal & Window */}
+            <div
+              style={{
+                backgroundColor: "var(--bg-surface-elevated)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "var(--radius-xs)",
+                padding: "10px 12px",
+                gridColumn: "span 2",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 10.5,
+                  fontWeight: 600,
+                  color: "var(--text-muted)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.5px",
+                  marginBottom: 8,
+                }}
+              >
+                Window &amp; Launcher Control
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "7px 16px", fontSize: 11.5 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: "var(--text-secondary)" }}>Toggle Sift (Global)</span>
+                  <span
+                    className="keycap"
+                    style={{
+                      color: "var(--accent-violet-light)",
+                      borderColor: "rgba(139, 92, 246, 0.4)",
+                      backgroundColor: "rgba(139, 92, 246, 0.1)",
+                    }}
+                  >
+                    {settings.global_shortcut || "Ctrl+Alt+Space"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: "var(--text-secondary)" }}>Clear search / Close sheet</span>
+                  <span className="keycap">Esc</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: "var(--text-secondary)" }}>Instant window hide</span>
+                  <span className="keycap">Shift+Esc</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: "var(--text-secondary)" }}>Quick dismiss</span>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <span className="keycap">Ctrl+W</span>
+                    <span className="keycap">Ctrl+Q</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Resource Profile */}
