@@ -16,6 +16,7 @@ export interface RootFolder {
 export interface IndexStatus {
   total_files_discovered: number;
   files_indexed: number;
+  total_embeddings?: number;
   queue_length: number;
   is_scanning: boolean;
   is_indexing: boolean;

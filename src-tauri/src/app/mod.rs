@@ -98,10 +98,12 @@ impl AppState {
         let q_len = self.queue_length.load(Ordering::Relaxed);
 
         let (_roots_count, files_count) = self.db.get_stats().unwrap_or((0, 0));
+        let total_embeddings = self.db.get_total_embeddings().unwrap_or(0);
 
         IndexStatus {
             total_files_discovered: files_count,
             files_indexed: files_count,
+            total_embeddings,
             queue_length: q_len as i64,
             is_scanning,
             is_indexing: is_scanning || q_len > 0,

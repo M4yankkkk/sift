@@ -2,7 +2,7 @@ use crate::error::{Result, SiftError};
 use crate::models::{AppSettings, FileRecord, MatchType, RootFolder, SearchResultItem};
 use crate::scanner::FileMeta;
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
@@ -348,31 +348,95 @@ impl Database {
                     "#,
                 )?;
 
-                let mut id_lookup = tx.prepare("SELECT id FROM files WHERE path = ?1")?;
+                let mut check_existing = tx.prepare(
+                    "SELECT id, fingerprint, is_deleted FROM files WHERE path = ?1",
+                )?;
+                let mut has_emb_stmt = tx.prepare(
+                    "SELECT 1 FROM chunk_embeddings WHERE file_id = ?1 LIMIT 1",
+                )?;
+                let mut has_ocr_stmt = tx.prepare(
+                    "SELECT 1 FROM ocr_data WHERE file_id = ?1 LIMIT 1",
+                )?;
 
                 for file in files {
-                    let id = Uuid::new_v4().to_string();
-                    let mtime_str = file.modified_at.to_rfc3339();
-                    stmt.execute(params![
-                        id,
-                        root_id,
-                        file.path,
-                        file.filename,
-                        file.extension,
-                        file.size_bytes,
-                        mtime_str,
-                        file.fingerprint,
-                        now_str,
-                    ])?;
+                    let existing_opt = check_existing
+                        .query_row(params![file.path], |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, i64>(2)?,
+                            ))
+                        })
+                        .optional()?;
 
-                    if let Ok(actual_id) =
-                        id_lookup.query_row(params![file.path], |row| row.get::<_, String>(0))
-                    {
+                    let mut needs_indexing = true;
+                    let file_id: String;
+
+                    match existing_opt {
+                        Some((existing_id, existing_fp, is_deleted)) => {
+                            if is_deleted == 0 && existing_fp == file.fingerprint {
+                                // Fingerprint matches exactly! The file has not changed on disk.
+                                let is_image = crate::embeddings::is_image_supported_for_vision(&file.extension);
+                                let is_ocr = crate::ocr::is_ocr_supported_extension(&file.extension);
+                                let is_doc_or_code = crate::extract::is_text_or_code_extension(&file.extension) || file.extension == "pdf";
+
+                                let already_has_embeddings = has_emb_stmt.exists(params![existing_id]).unwrap_or(false);
+                                let already_has_ocr = if is_ocr {
+                                    has_ocr_stmt.exists(params![existing_id]).unwrap_or(false)
+                                } else {
+                                    false
+                                };
+
+                                if (is_image && already_has_embeddings)
+                                    || (is_ocr && (already_has_embeddings || already_has_ocr))
+                                    || (is_doc_or_code && already_has_embeddings)
+                                    || (!is_image && !is_ocr && !is_doc_or_code)
+                                {
+                                    // File is already indexed and completely up to date! Skip re-embedding.
+                                    needs_indexing = false;
+                                }
+                            }
+
+                            if needs_indexing {
+                                let mtime_str = file.modified_at.to_rfc3339();
+                                stmt.execute(params![
+                                    existing_id,
+                                    root_id,
+                                    file.path,
+                                    file.filename,
+                                    file.extension,
+                                    file.size_bytes,
+                                    mtime_str,
+                                    file.fingerprint,
+                                    now_str,
+                                ])?;
+                            }
+                            file_id = existing_id;
+                        }
+                        None => {
+                            let new_id = Uuid::new_v4().to_string();
+                            let mtime_str = file.modified_at.to_rfc3339();
+                            stmt.execute(params![
+                                new_id,
+                                root_id,
+                                file.path,
+                                file.filename,
+                                file.extension,
+                                file.size_bytes,
+                                mtime_str,
+                                file.fingerprint,
+                                now_str,
+                            ])?;
+                            file_id = new_id;
+                        }
+                    }
+
+                    if needs_indexing {
                         file_records_to_index.push((
                             file.path.clone(),
                             file.filename.clone(),
                             file.extension.clone(),
-                            actual_id,
+                            file_id,
                         ));
                     }
                     count += 1;
@@ -1055,6 +1119,14 @@ impl Database {
                 r.get(0)
             })?;
         Ok((total_roots, total_files))
+    }
+
+    pub fn get_total_embeddings(&self) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        let total: i64 = conn
+            .query_row("SELECT COUNT(*) FROM chunk_embeddings", [], |r| r.get(0))
+            .unwrap_or(0);
+        Ok(total)
     }
 
     pub fn delete_file_by_path(&self, path: &str) -> Result<bool> {

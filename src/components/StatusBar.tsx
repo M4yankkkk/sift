@@ -34,8 +34,9 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         <span className={`indicator-dot ${isBusy ? "active" : ""}`} />
         <span>
           {isBusy
-            ? status?.current_operation || "Indexing files..."
-            : `${status ? status.files_indexed : 0} files indexed`}
+            ? status?.current_operation ||
+              `Indexing files... ${status?.total_embeddings ? `(${status.total_embeddings.toLocaleString()} embeddings)` : ""}`
+            : `${(status?.files_indexed ?? 0).toLocaleString()} files • ${(status?.total_embeddings ?? 0).toLocaleString()} embeddings`}
         </span>
 
         <button

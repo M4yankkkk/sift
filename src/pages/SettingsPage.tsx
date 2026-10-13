@@ -440,14 +440,31 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 <span>{liveStatus?.current_operation || "Generating EmbeddingGemma 2 vectors..."}</span>
               </div>
               <div style={{ color: "var(--text-muted)", fontSize: 10.5 }}>
-                {liveStatus?.files_indexed ?? 0} files discovered • Background ML pass active (~2–5 mins for large libraries). Filename & text search remain instantly usable!
+                {liveStatus?.files_indexed ?? 0} files discovered • {(liveStatus?.total_embeddings ?? 0).toLocaleString()} neural vectors generated • Background ML pass active. Filename & text search remain instantly usable!
               </div>
             </div>
           )}
 
-          {!isBusy && liveStatus?.last_scan_completed_at && (
-            <div style={{ marginTop: 8, fontSize: 10.5, color: "var(--text-muted)" }}>
-              Index ready • {liveStatus.files_indexed} files indexed
+          {!isBusy && (
+            <div
+              style={{
+                marginTop: 10,
+                padding: "8px 12px",
+                background: "rgba(16, 185, 129, 0.08)",
+                borderRadius: "var(--radius-xs)",
+                border: "1px solid rgba(16, 185, 129, 0.2)",
+                fontSize: 11,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                color: "var(--accent-emerald)",
+              }}
+            >
+              <span className="indicator-dot" style={{ backgroundColor: "var(--accent-emerald)" }} />
+              <span>
+                Index ready • <strong>{(liveStatus?.files_indexed ?? 0).toLocaleString()} files</strong> indexed •{" "}
+                <strong>{(liveStatus?.total_embeddings ?? 0).toLocaleString()} neural embeddings</strong> active
+              </span>
             </div>
           )}
         </div>

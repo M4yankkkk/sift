@@ -30,6 +30,8 @@ pub struct RootFolder {
 pub struct IndexStatus {
     pub total_files_discovered: i64,
     pub files_indexed: i64,
+    #[serde(default)]
+    pub total_embeddings: i64,
     pub queue_length: i64,
     pub is_scanning: boolean_json::Bool,
     pub is_indexing: boolean_json::Bool,
