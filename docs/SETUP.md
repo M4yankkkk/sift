@@ -69,3 +69,35 @@ npm run tauri dev
 # Build standalone Debian/AppImage desktop package
 npm run tauri build
 ```
+
+---
+
+## 4. Production Installation
+
+### Method A: One-Command Turnkey Installer (Recommended)
+Run the automated installation script, which builds/installs the `.deb` package, verifies Tesseract OCR, sets up login autostart, and registers the GNOME Wayland shortcut (`Super+Space` / `Ctrl+Alt+Space`):
+
+```bash
+./scripts/install.sh
+```
+
+### Method B: Manual Native `.deb` Package Installation (Ubuntu / Debian)
+1. Build the release package:
+   ```bash
+   npm run tauri build
+   ```
+2. Install via `apt` (which resolves dependencies like WebKitGTK and AppIndicator automatically):
+   ```bash
+   sudo apt install ./src-tauri/target/release/bundle/deb/sift_0.1.0_amd64.deb
+   ```
+3. Launch or toggle anytime from terminal or shortcut:
+   ```bash
+   sift --toggle
+   ```
+
+### Method C: Portable AppImage (Universal Linux)
+If you don't have root privileges or are running on Arch, Fedora, or another distribution:
+```bash
+chmod +x ./src-tauri/target/release/bundle/appimage/sift_0.1.0_amd64.AppImage
+./src-tauri/target/release/bundle/appimage/sift_0.1.0_amd64.AppImage
+```

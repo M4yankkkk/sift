@@ -113,7 +113,11 @@ pub fn sync_gnome_shortcut(shortcut: &str) {
         .unwrap_or(false)
     {
         let binding = format_gnome_binding(shortcut);
-        let script_path = "/home/mayank-tiwari/.local/bin/sift-toggle";
+        let script_path = if let Ok(exe) = std::env::current_exe() {
+            format!("{} --toggle", exe.to_string_lossy())
+        } else {
+            "sift --toggle".to_string()
+        };
 
         let _ = std::process::Command::new("gsettings")
             .args([
@@ -129,7 +133,7 @@ pub fn sync_gnome_shortcut(shortcut: &str) {
                 "set",
                 "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom1/",
                 "command",
-                script_path,
+                &script_path,
             ])
             .output();
 

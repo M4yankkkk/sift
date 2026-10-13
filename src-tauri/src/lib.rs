@@ -22,7 +22,16 @@ pub fn run() {
     tracing::info!("Starting Sift desktop application...");
 
     // Determine database path in user data directory or local fallback
-    let db_path = std::env::var("SIFT_DB_PATH").unwrap_or_else(|_| "sift.db".to_string());
+    let db_path = std::env::var("SIFT_DB_PATH").unwrap_or_else(|_| {
+        if std::path::Path::new("sift.db").exists() {
+            "sift.db".to_string()
+        } else {
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            let sift_data_dir = std::path::PathBuf::from(home).join(".local").join("share").join("sift");
+            let _ = std::fs::create_dir_all(&sift_data_dir);
+            sift_data_dir.join("sift.db").to_string_lossy().to_string()
+        }
+    });
     let embedding_engine = sift_core::create_default_embedding_engine();
     let db = Database::open(&db_path)
         .expect("Failed to initialize SQLite database")
