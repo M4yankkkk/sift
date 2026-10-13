@@ -25,12 +25,29 @@ pub trait EmbeddingEngine: Send + Sync {
     /// Generates normalized vector embeddings for a batch of text strings.
     fn embed_texts(&self, texts: &[String]) -> Result<Vec<Vec<f32>>>;
 
+    /// Embeds a search query with Google DeepMind EmbeddingGemma 2 asymmetric instruction prefix:
+    /// `task: search result | query: {query}`
+    fn embed_query(&self, query: &str) -> Result<Vec<f32>> {
+        let formatted = format!("task: search result | query: {}", query);
+        self.embed_text(&formatted)
+    }
+
+    /// Embeds a document chunk with Google DeepMind EmbeddingGemma 2 document prefix:
+    /// `title: {title} | text: {content}`
+    fn embed_document(&self, title: Option<&str>, content: &str) -> Result<Vec<f32>> {
+        let formatted = match title {
+            Some(t) if !t.is_empty() => format!("title: {} | text: {}", t, content),
+            _ => format!("title: none | text: {}", content),
+        };
+        self.embed_text(&formatted)
+    }
+
     /// Generates a normalized visual vector embedding for an image file.
     fn embed_image(&self, image_path: &Path) -> Result<Vec<f32>>;
 
     /// Generates a normalized visual-query vector for cross-modal image searching.
     fn embed_vision_query(&self, text: &str) -> Result<Vec<f32>> {
-        self.embed_text(text)
+        self.embed_query(text)
     }
 }
 
@@ -280,7 +297,7 @@ impl DeterministicMockEngine {
         let lower = input.to_lowercase();
         let tokens: Vec<&str> = lower
             .split(|c: char| !c.is_alphanumeric() && c != '_')
-            .filter(|s| !s.is_empty())
+            .filter(|s| !s.is_empty() && !matches!(*s, "task" | "search" | "result" | "query" | "title" | "text" | "none"))
             .collect();
 
         if tokens.is_empty() {

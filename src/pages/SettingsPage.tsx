@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Cpu, Zap, Shield, Save, X } from "lucide-react";
+import { Cpu, Zap, Shield, Save, X, RefreshCw } from "lucide-react";
 import { SiftAPI } from "../services/tauriClient";
 import { SiftBrandmark } from "../components/SiftLogo";
 import type { AppSettings, ResourceMode } from "../types/contract";
@@ -13,12 +13,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onClose }) => {
     global_shortcut: "Ctrl+Alt+Space",
     resource_mode: "eco",
 
-    ml_enabled: false,
-    ocr_enabled: false,
+    ml_enabled: true,
+    ocr_enabled: true,
     default_exclusions: [".git", "node_modules", "target", "dist", ".cache"],
     max_file_size_mb: 25,
   });
   const [isSaved, setIsSaved] = useState(false);
+  const [isReindexing, setIsReindexing] = useState(false);
 
   useEffect(() => {
     SiftAPI.getSettings().then(setSettings).catch(console.error);
@@ -146,6 +147,78 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onClose }) => {
               </p>
             </div>
           </div>
+        </div>
+
+        {/* AI Semantic Engine (Google EmbeddingGemma 2) */}
+        <div
+          style={{
+            backgroundColor: "var(--bg-surface)",
+            border: "1px solid var(--border-subtle)",
+            borderRadius: "var(--radius-sm)",
+            padding: 14,
+            marginBottom: 14,
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+            <div>
+              <label style={{ display: "block", fontWeight: 600, fontSize: 13, marginBottom: 2 }}>
+                Google EmbeddingGemma 2
+              </label>
+              <span
+                style={{
+                  fontSize: 10.5,
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                  backgroundColor: "rgba(179, 128, 255, 0.15)",
+                  color: "#B380FF",
+                  fontFamily: "var(--font-mono)",
+                  fontWeight: 600,
+                }}
+              >
+                768-dim Unified Multimodal ONNX
+              </span>
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12 }}>
+              <input
+                type="checkbox"
+                checked={settings.ml_enabled}
+                onChange={(e) => setSettings({ ...settings, ml_enabled: e.target.checked })}
+                style={{ accentColor: "var(--accent-violet)" }}
+              />
+              <span style={{ fontWeight: 500 }}>Enabled</span>
+            </label>
+          </div>
+          <p style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.4, marginBottom: 10 }}>
+            Maps text, code, PDFs, and images into a unified 768-dimensional semantic space with asymmetric search instruction prefixes (<code>task: search result | query:</code>).
+          </p>
+          <button
+            onClick={async () => {
+              setIsReindexing(true);
+              try {
+                await SiftAPI.reindexAll();
+                setTimeout(() => setIsReindexing(false), 2500);
+              } catch (e) {
+                console.error("Reindex error:", e);
+                setIsReindexing(false);
+              }
+            }}
+            disabled={isReindexing}
+            style={{
+              fontSize: 11.5,
+              padding: "5px 12px",
+              borderRadius: "var(--radius-xs)",
+              background: "var(--bg-surface-elevated)",
+              border: "1px solid var(--border-subtle)",
+              color: "var(--text-primary)",
+              cursor: isReindexing ? "not-allowed" : "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <RefreshCw size={12} className={isReindexing ? "spin" : ""} />
+            {isReindexing ? "Re-indexing files with EmbeddingGemma 2..." : "Re-index All Files (Apply New Embeddings)"}
+          </button>
         </div>
 
         {/* Offline Privacy Guarantee */}

@@ -126,7 +126,7 @@ impl Default for AppSettings {
             resource_mode: ResourceMode::Eco,
 
 
-            ml_enabled: false,
+            ml_enabled: true,
             ocr_enabled: true,
             default_exclusions: vec![
                 ".git".to_string(),

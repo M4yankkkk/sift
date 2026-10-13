@@ -482,7 +482,7 @@ impl Database {
 
                         // Embed OCR text if embedding engine is active
                         if let Some(ref engine) = self.embedding_engine {
-                            if let Ok(ocr_vec) = engine.embed_text(&ocr_res.full_text) {
+                            if let Ok(ocr_vec) = engine.embed_document(Some(&filename), &ocr_res.full_text) {
                                 let blob = crate::embeddings::serialize_vector(&ocr_vec);
                                 let emb_id = Uuid::new_v4().to_string();
                                 let now = Utc::now().timestamp();
@@ -529,7 +529,7 @@ impl Database {
                         drop(conn);
 
                         for chunk in &chunks {
-                            if let Ok(chunk_vec) = engine.embed_text(&chunk.content) {
+                            if let Ok(chunk_vec) = engine.embed_document(Some(&filename), &chunk.content) {
                                 let blob = crate::embeddings::serialize_vector(&chunk_vec);
                                 let emb_id = Uuid::new_v4().to_string();
                                 let now = Utc::now().timestamp();
@@ -700,7 +700,7 @@ impl Database {
 
             let vec = crate::embeddings::deserialize_vector(&blob);
             let sim = crate::embeddings::cosine_similarity(query_vec, &vec);
-            let threshold = if modality == "image" { 0.18 } else { 0.42 };
+            let threshold = if modality == "image" { 0.18 } else { 0.26 };
             if sim > threshold {
                 match best_by_file.entry(file_id.clone()) {
                     std::collections::hash_map::Entry::Occupied(mut occ) => {
@@ -761,10 +761,18 @@ impl Database {
         // 3. Semantic vector hits
         let vector_hits = if let Some(ref engine) = self.embedding_engine {
             let mut hits = Vec::new();
-            // 3a. Search conceptual document chunks with text query vector
-            if let Ok(q_vec) = engine.embed_text(q_trimmed) {
+            // 3a. Search conceptual document chunks with Google EmbeddingGemma 2 query instruction prefix
+            if let Ok(q_vec) = engine.embed_query(q_trimmed) {
                 if let Ok(text_hits) = self.search_vectors_by_modality(&q_vec, limit, Some(false)) {
                     hits.extend(text_hits);
+                }
+            }
+            // Fallback: If no hits with prefixed query (e.g. legacy indexed chunks), check raw query vector
+            if hits.is_empty() {
+                if let Ok(raw_q_vec) = engine.embed_text(q_trimmed) {
+                    if let Ok(fallback_hits) = self.search_vectors_by_modality(&raw_q_vec, limit, Some(false)) {
+                        hits.extend(fallback_hits);
+                    }
                 }
             }
             // 3b. Search visual image chunks with cross-modal vision query vector
