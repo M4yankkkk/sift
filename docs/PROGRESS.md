@@ -1,6 +1,6 @@
 # Sift — Implementation Progress
 
-## Current Phase: Phase 5 Completed
+## Current Status: Phase 6 Complete (All MVP Phases Finished)
 
 ### 1. Completed in Phase 0 (Foundation and Decisions)
 - [x] **Project Repository & Modular Scaffold**: Root Cargo workspace (`crates/sift-core` + `src-tauri` + React TS).
