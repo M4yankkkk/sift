@@ -8,6 +8,9 @@ import {
   FileText,
   Image as ImageIcon,
   Binary,
+  Copy,
+  Check,
+  Zap,
 } from "lucide-react";
 import { SiftAPI } from "../services/tauriClient";
 
@@ -25,15 +28,17 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
   const [imgDims, setImgDims] = useState<{ width: number; height: number } | null>(null);
   const [pdfTab, setPdfTab] = useState<"visual" | "text">("visual");
   const [showOcrBoxes, setShowOcrBoxes] = useState(true);
+  const [copiedPath, setCopiedPath] = useState(false);
+  const [copiedContent, setCopiedContent] = useState(false);
 
   if (!item) {
     return (
       <div className="preview-container">
         <div className="empty-state">
-          <FileQuestion size={28} className="empty-state-icon" />
+          <FileQuestion size={32} className="empty-state-icon" />
           <div className="empty-title">Select a file to preview</div>
           <div className="empty-desc">
-            Use the arrow keys or click a search result to view details, images, or document excerpts.
+            Use the arrow keys or click a search result to view details, images, code excerpts, or OCR regions.
           </div>
         </div>
       </div>
@@ -46,6 +51,18 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
 
   const handleReveal = () => {
     SiftAPI.revealResult(item.path);
+  };
+
+  const handleCopyPath = () => {
+    navigator.clipboard.writeText(item.path);
+    setCopiedPath(true);
+    setTimeout(() => setCopiedPath(false), 2000);
+  };
+
+  const handleCopyContent = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedContent(true);
+    setTimeout(() => setCopiedContent(false), 2000);
   };
 
   const ext = item.extension.toLowerCase();
@@ -132,7 +149,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
           </div>
 
           <div className="preview-image-meta">
-            <div className="image-meta-left">
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, color: "var(--text-secondary)" }}>
               <ImageIcon size={13} color="var(--accent-amber)" />
               <span>
                 {imgDims ? `${imgDims.width} × ${imgDims.height} px • ` : ""}
@@ -141,25 +158,31 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
             </div>
 
             {hasOcr && (
-              <div className="ocr-meta-toggle">
-                <button
-                  className={`ocr-toggle-pill ${showOcrBoxes ? "active" : ""}`}
-                  onClick={() => setShowOcrBoxes((v) => !v)}
-                  title="Toggle OCR match bounding boxes"
-                >
-                  <Sparkles size={11} />
-                  <span>OCR Boxes ({preview.ocr_regions!.length})</span>
-                </button>
-              </div>
+              <button
+                className={`ocr-toggle-pill ${showOcrBoxes ? "active" : ""}`}
+                onClick={() => setShowOcrBoxes((v) => !v)}
+                title="Toggle OCR match bounding boxes"
+              >
+                <Zap size={11} />
+                <span>OCR Boxes ({preview.ocr_regions!.length})</span>
+              </button>
             )}
           </div>
 
           {hasOcr && preview.snippet && (
             <div className="ocr-text-card">
-              <div className="ocr-text-header">
-                <span className="ocr-badge-label">
-                  OCR Text Match {preview.confidence ? `• ${Math.round(preview.confidence)}% Confidence` : ""}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 10, fontWeight: 600, color: "var(--accent-amber)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  OCR Recognized Text {preview.confidence ? `• ${Math.round(preview.confidence)}% Confidence` : ""}
                 </span>
+                <button
+                  className="btn-copy"
+                  style={{ padding: "2px 6px", fontSize: 10 }}
+                  onClick={() => handleCopyContent(preview.snippet || "")}
+                >
+                  {copiedContent ? <Check size={10} color="var(--accent-emerald)" /> : <Copy size={10} />}
+                  <span>{copiedContent ? "Copied" : "Copy"}</span>
+                </button>
               </div>
               <div
                 className="ocr-text-snippet"
@@ -268,10 +291,22 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
 
     // 4. Text / Code / Markdown
     const lines = preview.preview_content.split("\n");
-    const isCode = preview.mime_type === "text/code" || ["rs", "ts", "tsx", "js", "py", "json", "toml", "yaml"].includes(ext);
+    const isCode = preview.mime_type === "text/code" || ["rs", "ts", "tsx", "js", "py", "json", "toml", "yaml", "go", "cpp", "c"].includes(ext);
 
     return (
       <div className="preview-text-wrapper">
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+          <button
+            className={`btn-copy ${copiedContent ? "copied" : ""}`}
+            onClick={() => handleCopyContent(preview.preview_content)}
+            style={{ padding: "3px 8px", fontSize: 11 }}
+            title="Copy file contents"
+          >
+            {copiedContent ? <Check size={11} /> : <Copy size={11} />}
+            <span>{copiedContent ? "Copied" : "Copy Content"}</span>
+          </button>
+        </div>
+
         {isCode ? (
           <div className="code-preview-layout">
             <div className="code-gutter">
@@ -314,12 +349,20 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
         {/* Action Buttons */}
         <div className="preview-action-group">
           <button
+            className={`btn-copy ${copiedPath ? "copied" : ""}`}
+            onClick={handleCopyPath}
+            title="Copy absolute file path"
+          >
+            {copiedPath ? <Check size={13} /> : <Copy size={13} />}
+            <span>{copiedPath ? "Copied" : "Path"}</span>
+          </button>
+          <button
             className="btn-reveal"
             onClick={handleReveal}
-            title="Reveal in file manager"
+            title="Reveal in file manager (Ctrl+R)"
           >
             <FolderOpen size={13} />
-            Reveal
+            <span>Reveal</span>
           </button>
           <button
             className="btn-open"
@@ -327,21 +370,21 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
             title="Open file with default system application (Enter)"
           >
             <ExternalLink size={13} />
-            Open
+            <span>Open</span>
           </button>
         </div>
       </div>
 
-      {/* Matched Snippet & Reasons Callout */}
+      {/* Matched Snippet & Context Callout */}
       {(item.snippet || (item.match_reasons && item.match_reasons.length > 0)) && (
         <div className="matched-snippet-callout">
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4, fontWeight: 600 }}>
             <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-              <Sparkles size={12} color={item.match_type === "semantic" ? "#34d399" : "var(--accent-violet-light)"} />
-              {item.match_type === "semantic" ? "Semantic Match Context:" : "Matched Context:"}
+              <Sparkles size={12} color={item.match_type === "semantic" ? "var(--accent-emerald)" : "var(--accent-violet-light)"} />
+              <span>{item.match_type === "semantic" ? "Neural Relevance Match:" : "Matched Context:"}</span>
             </span>
             {item.match_reasons && item.match_reasons.length > 0 && (
-              <span style={{ fontSize: 10, color: item.match_type === "semantic" ? "#34d399" : "var(--accent-violet-light)", fontWeight: 500 }}>
+              <span style={{ fontSize: 10, color: item.match_type === "semantic" ? "var(--accent-emerald)" : "var(--accent-violet-light)", fontWeight: 500 }}>
                 {item.match_reasons[0]}
               </span>
             )}
@@ -362,4 +405,3 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
     </div>
   );
 };
-

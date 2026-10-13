@@ -261,6 +261,7 @@ export const App: React.FC = () => {
         onFilterChange={setActiveFilter}
         showPreview={showPreview}
         onTogglePreview={() => setShowPreview((prev) => !prev)}
+        isSearching={isSearching}
       />
 
       {/* Main Content: Compact Results + Expandable Preview Panel */}
@@ -269,8 +270,9 @@ export const App: React.FC = () => {
           results={results}
           selectedId={selectedId}
           onSelect={(item) => setSelectedId(item.id)}
-          isLoading={isSearching}
+          isLoading={isSearching && results.length === 0}
           withPreview={showPreview}
+          query={query}
         />
 
         {showPreview && (

@@ -1,5 +1,17 @@
 import React, { useState, useEffect } from "react";
-import { Cpu, Zap, Shield, Save, X, RefreshCw, Keyboard } from "lucide-react";
+import {
+  Cpu,
+  Zap,
+  Shield,
+  Save,
+  X,
+  RefreshCw,
+  Keyboard,
+  HardDrive,
+  Sparkles,
+  Info,
+  CheckCircle2,
+} from "lucide-react";
 import { SiftAPI } from "../services/tauriClient";
 import { SiftBrandmark } from "../components/SiftLogo";
 import type { AppSettings, IndexStatus, ResourceMode } from "../types/contract";
@@ -18,7 +30,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [settings, setSettings] = useState<AppSettings>({
     global_shortcut: "Ctrl+Alt+Space",
     resource_mode: "eco",
-
     ml_enabled: true,
     ocr_enabled: true,
     default_exclusions: [".git", "node_modules", "target", "dist", ".cache"],
@@ -70,12 +81,28 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     }
   };
 
+  const handleReindex = async () => {
+    setIsReindexing(true);
+    try {
+      const s = await SiftAPI.reindexAll();
+      setLiveStatus(s);
+      if (onRefreshStatus) onRefreshStatus();
+    } catch (e) {
+      console.error("Reindex error:", e);
+      setIsReindexing(false);
+    }
+  };
+
   return (
     <div className="modal-overlay">
+      {/* Header */}
       <div className="modal-header">
-        <div className="modal-title-stack" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <SiftBrandmark size={14} />
-          <h3 style={{ fontSize: 15, fontWeight: 600 }}>Preferences</h3>
+        <div className="modal-title-stack" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <SiftBrandmark size={15} />
+          <div>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)" }}>Preferences & Engine Diagnostics</h3>
+            <p style={{ fontSize: 11, color: "var(--text-muted)" }}>Control launcher behavior, shortcut bindings, and neural models</p>
+          </div>
         </div>
         {onClose && (
           <button className="modal-close-btn" onClick={onClose} title="Close (Esc)">
@@ -84,58 +111,157 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         )}
       </div>
 
-      <div className="modal-content-area">
-        {/* Global Shortcut */}
+      <div className="modal-content-area" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {/* SECTION 1: INDEXING ENGINE & LAUNCH BEHAVIOR (Directly answers user question) */}
         <div
           style={{
             backgroundColor: "var(--bg-surface)",
             border: "1px solid var(--border-subtle)",
-            borderRadius: "var(--radius-sm)",
-            padding: 14,
-            marginBottom: 14,
+            borderRadius: "var(--radius-md)",
+            padding: 16,
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
           }}
         >
-          <label style={{ display: "block", fontWeight: 500, fontSize: 13, marginBottom: 4 }}>
-            Global Launch Shortcut
-          </label>
-          <p style={{ fontSize: 11.5, color: "var(--text-muted)", marginBottom: 10 }}>
-            System-wide key combination to toggle Sift (auto-synced with GNOME Shortcuts &amp; sift-toggle on Linux).
-          </p>
-          <input
-            type="text"
-            className="search-input-field"
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <HardDrive size={16} color="var(--accent-violet-light)" />
+              <span style={{ fontWeight: 600, fontSize: 13.5 }}>Indexing Engine & Startup Behavior</span>
+            </div>
+            <span
+              style={{
+                fontSize: 10.5,
+                fontWeight: 600,
+                color: "var(--accent-emerald)",
+                background: "var(--accent-emerald-subtle)",
+                border: "1px solid rgba(16, 185, 129, 0.3)",
+                padding: "2px 7px",
+                borderRadius: "var(--radius-xs)",
+              }}
+            >
+              Smart Incremental Active
+            </span>
+          </div>
+
+          {/* Explanation Banner */}
+          <div
             style={{
-              backgroundColor: "var(--bg-surface-elevated)",
-              border: "1px solid var(--border-subtle)",
-              borderRadius: "var(--radius-xs)",
-              padding: "6px 10px",
-              width: 180,
-              fontSize: 12.5,
-              fontFamily: "var(--font-mono)",
+              padding: "10px 14px",
+              borderRadius: "var(--radius-sm)",
+              backgroundColor: "rgba(139, 92, 246, 0.08)",
+              border: "1px solid rgba(139, 92, 246, 0.22)",
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 10,
+              fontSize: 12,
+              lineHeight: 1.5,
+              color: "#c4b5fd",
             }}
-            value={settings.global_shortcut}
-            onChange={(e) =>
-              setSettings({ ...settings, global_shortcut: e.target.value })
-            }
-          />
+          >
+            <Info size={16} style={{ flexShrink: 0, marginTop: 2, color: "var(--accent-violet-light)" }} />
+            <div>
+              <strong>Does Sift re-index everything on every launch?</strong>
+              <div style={{ color: "var(--text-secondary)", marginTop: 2 }}>
+                <strong>No.</strong> Sift uses smart timestamp and size fingerprinting. On application start, Sift reconciles your approved directories in <strong>&lt; 0.5s</strong>. Existing unchanged files are <strong>never</strong> re-embedded. Only modified or newly added files undergo BM25 tokenization and EmbeddingGemma 2 ONNX vector generation.
+              </div>
+            </div>
+          </div>
+
+          {/* Live Metric Cards Grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+            <div
+              style={{
+                background: "var(--bg-surface-elevated)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "var(--radius-xs)",
+                padding: "10px 12px",
+              }}
+            >
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>Files Indexed</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
+                {(liveStatus?.files_indexed ?? 0).toLocaleString()}
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: "var(--bg-surface-elevated)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "var(--radius-xs)",
+                padding: "10px 12px",
+              }}
+            >
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>Neural Embeddings</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "var(--accent-violet-light)", fontFamily: "var(--font-mono)" }}>
+                {(liveStatus?.total_embeddings ?? 0).toLocaleString()}
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: "var(--bg-surface-elevated)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "var(--radius-xs)",
+                padding: "10px 12px",
+              }}
+            >
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>Indexing Engine State</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                <span className={`indicator-dot ${isBusy ? "active" : ""}`} />
+                <span style={{ fontSize: 12, fontWeight: 500, color: isBusy ? "var(--accent-violet-light)" : "var(--accent-emerald)" }}>
+                  {isBusy ? "Indexing Pass Active" : "Reconciled & Ready"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Action to Force Full Reindex */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
+            <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+              Need to refresh all cached models or wipe stale embeddings?
+            </span>
+            <button
+              onClick={handleReindex}
+              disabled={isBusy}
+              style={{
+                fontSize: 11.5,
+                padding: "6px 14px",
+                borderRadius: "var(--radius-xs)",
+                background: isBusy ? "rgba(139, 92, 246, 0.15)" : "var(--bg-surface-elevated)",
+                border: isBusy ? "1px solid var(--accent-violet)" : "1px solid var(--border-subtle)",
+                color: "var(--text-primary)",
+                cursor: isBusy ? "not-allowed" : "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                transition: "all 0.15s ease",
+              }}
+            >
+              <RefreshCw size={12} className={isBusy ? "spin" : ""} />
+              {isBusy ? "Re-indexing files in background..." : "Force Full Re-index"}
+            </button>
+          </div>
         </div>
 
-        {/* Keyboard Shortcuts Reference */}
+        {/* SECTION 2: KEYBOARD SHORTCUTS REFERENCE GUIDE */}
         <div
           style={{
             backgroundColor: "var(--bg-surface)",
             border: "1px solid var(--border-subtle)",
-            borderRadius: "var(--radius-sm)",
-            padding: 14,
-            marginBottom: 14,
+            borderRadius: "var(--radius-md)",
+            padding: 16,
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
-            <Keyboard size={15} color="var(--accent-violet-light)" />
-            <span style={{ fontWeight: 600, fontSize: 13 }}>Keyboard Shortcuts Reference</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Keyboard size={16} color="var(--accent-violet-light)" />
+            <span style={{ fontWeight: 600, fontSize: 13.5 }}>Complete Keyboard Shortcuts Guide</span>
           </div>
-          <p style={{ fontSize: 11.5, color: "var(--text-muted)", marginBottom: 12 }}>
-            Sift is 100% keyboard-navigable without needing a mouse.
+          <p style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+            Sift is 100% keyboard-navigable for distraction-free developer workflows.
           </p>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -160,7 +286,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               >
                 Search &amp; Navigation
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 7, fontSize: 11.5 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 11.5 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span style={{ color: "var(--text-secondary)" }}>Navigate results</span>
                   <div style={{ display: "flex", gap: 4 }}>
@@ -169,14 +295,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   </div>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ color: "var(--text-secondary)" }}>Next / Prev (Vim)</span>
+                  <span style={{ color: "var(--text-secondary)" }}>Next / Prev (Vim style)</span>
                   <div style={{ display: "flex", gap: 4 }}>
                     <span className="keycap">Ctrl+N</span>
                     <span className="keycap">Ctrl+P</span>
                   </div>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ color: "var(--text-secondary)" }}>Focus search bar</span>
+                  <span style={{ color: "var(--text-secondary)" }}>Focus &amp; select search bar</span>
                   <span className="keycap">Ctrl+L</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -186,7 +312,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               </div>
             </div>
 
-            {/* Actions & Execution */}
+            {/* Actions & File Execution */}
             <div
               style={{
                 backgroundColor: "var(--bg-surface-elevated)",
@@ -207,30 +333,30 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               >
                 Actions &amp; Opening
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 7, fontSize: 11.5 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 11.5 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ color: "var(--text-secondary)" }}>Open file</span>
+                  <span style={{ color: "var(--text-secondary)" }}>Open file in default app</span>
                   <div style={{ display: "flex", gap: 4 }}>
                     <span className="keycap">↵ Enter</span>
                     <span className="keycap">Ctrl+O</span>
                   </div>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ color: "var(--text-secondary)" }}>Reveal in folder</span>
+                  <span style={{ color: "var(--text-secondary)" }}>Reveal in file manager</span>
                   <span className="keycap">Ctrl+R</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ color: "var(--text-secondary)" }}>Preferences</span>
+                  <span style={{ color: "var(--text-secondary)" }}>Open Preferences</span>
                   <span className="keycap">Ctrl+,</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ color: "var(--text-secondary)" }}>Manage Folders</span>
+                  <span style={{ color: "var(--text-secondary)" }}>Manage Search Folders</span>
                   <span className="keycap">Ctrl+Shift+F</span>
                 </div>
               </div>
             </div>
 
-            {/* Dismissal & Window */}
+            {/* Window & Dismissal */}
             <div
               style={{
                 backgroundColor: "var(--bg-surface-elevated)",
@@ -252,15 +378,15 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               >
                 Window &amp; Launcher Control
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "7px 16px", fontSize: 11.5 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 20px", fontSize: 11.5 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ color: "var(--text-secondary)" }}>Toggle Sift (Global)</span>
+                  <span style={{ color: "var(--text-secondary)" }}>Global Launch Shortcut</span>
                   <span
                     className="keycap"
                     style={{
                       color: "var(--accent-violet-light)",
                       borderColor: "rgba(139, 92, 246, 0.4)",
-                      backgroundColor: "rgba(139, 92, 246, 0.1)",
+                      backgroundColor: "rgba(139, 92, 246, 0.12)",
                     }}
                   >
                     {settings.global_shortcut || "Ctrl+Alt+Space"}
@@ -286,217 +412,240 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
         </div>
 
-        {/* Resource Profile */}
+        {/* SECTION 3: GLOBAL SHORTCUT & SYSTEM CONFIG */}
         <div
           style={{
             backgroundColor: "var(--bg-surface)",
             border: "1px solid var(--border-subtle)",
-            borderRadius: "var(--radius-sm)",
-            padding: 14,
-            marginBottom: 14,
+            borderRadius: "var(--radius-md)",
+            padding: 16,
           }}
         >
-          <label style={{ display: "block", fontWeight: 500, fontSize: 13, marginBottom: 4 }}>
-            Resource Profile
+          <label style={{ display: "block", fontWeight: 600, fontSize: 13, marginBottom: 4 }}>
+            System-Wide Global Shortcut
           </label>
-          <p style={{ fontSize: 11.5, color: "var(--text-muted)", marginBottom: 12 }}>
-            Governs background CPU and memory throttling during indexing passes.
+          <p style={{ fontSize: 11.5, color: "var(--text-muted)", marginBottom: 10 }}>
+            Toggles Sift from anywhere in Linux (Wayland GNOME custom shortcut daemon &amp; Unix socket synced).
           </p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <div
-              onClick={() => setSettings({ ...settings, resource_mode: "eco" as ResourceMode })}
-              style={{
-                border: `1px solid ${
-                  settings.resource_mode === "eco" ? "var(--accent-emerald)" : "var(--border-subtle)"
-                }`,
-                backgroundColor:
-                  settings.resource_mode === "eco" ? "rgba(16, 185, 129, 0.08)" : "var(--bg-surface-elevated)",
-                borderRadius: "var(--radius-xs)",
-                padding: 10,
-                cursor: "pointer",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-                <Cpu size={14} color="var(--accent-emerald)" />
-                <span style={{ fontWeight: 600, fontSize: 12 }}>Eco Mode</span>
-              </div>
-              <p style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                Restricted CPU threads, idle RAM &lt; 100MB.
-              </p>
-            </div>
-
-            <div
-              onClick={() => setSettings({ ...settings, resource_mode: "performance" as ResourceMode })}
-              style={{
-                border: `1px solid ${
-                  settings.resource_mode === "performance" ? "var(--accent-violet)" : "var(--border-subtle)"
-                }`,
-                backgroundColor:
-                  settings.resource_mode === "performance" ? "var(--accent-violet-subtle)" : "var(--bg-surface-elevated)",
-                borderRadius: "var(--radius-xs)",
-                padding: 10,
-                cursor: "pointer",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-                <Zap size={14} color="var(--accent-violet-light)" />
-                <span style={{ fontWeight: 600, fontSize: 12 }}>Performance</span>
-              </div>
-              <p style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                Utilizes multi-core parallel indexing.
-              </p>
-            </div>
-          </div>
+          <input
+            type="text"
+            className="search-input-field"
+            style={{
+              backgroundColor: "var(--bg-surface-elevated)",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: "var(--radius-xs)",
+              padding: "7px 12px",
+              width: 200,
+              fontSize: 13,
+              fontFamily: "var(--font-mono)",
+            }}
+            value={settings.global_shortcut}
+            onChange={(e) =>
+              setSettings({ ...settings, global_shortcut: e.target.value })
+            }
+          />
         </div>
 
-        {/* AI Semantic Engine (Google EmbeddingGemma 2) */}
+        {/* SECTION 4: AI SEMANTIC & OCR MODELS */}
         <div
           style={{
             backgroundColor: "var(--bg-surface)",
             border: "1px solid var(--border-subtle)",
-            borderRadius: "var(--radius-sm)",
-            padding: 14,
-            marginBottom: 14,
+            borderRadius: "var(--radius-md)",
+            padding: 16,
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
           }}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Sparkles size={16} color="var(--accent-violet-light)" />
+            <span style={{ fontWeight: 600, fontSize: 13.5 }}>AI Semantic Engine &amp; OCR Models</span>
+          </div>
+
+          {/* Model 1: EmbeddingGemma 2 */}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              padding: "10px 12px",
+              background: "var(--bg-surface-elevated)",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: "var(--radius-xs)",
+            }}
+          >
             <div>
-              <label style={{ display: "block", fontWeight: 600, fontSize: 13, marginBottom: 2 }}>
-                Google EmbeddingGemma 2
-              </label>
-              <span
-                style={{
-                  fontSize: 10.5,
-                  padding: "2px 6px",
-                  borderRadius: 4,
-                  backgroundColor: "rgba(179, 128, 255, 0.15)",
-                  color: "#B380FF",
-                  fontFamily: "var(--font-mono)",
-                  fontWeight: 600,
-                }}
-              >
-                768-dim Unified Multimodal ONNX
-              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                <span style={{ fontWeight: 600, fontSize: 13 }}>Google EmbeddingGemma 2</span>
+                <span
+                  style={{
+                    fontSize: 10,
+                    padding: "1px 5px",
+                    borderRadius: 3,
+                    background: "rgba(167, 139, 250, 0.15)",
+                    color: "var(--accent-violet-light)",
+                    fontFamily: "var(--font-mono)",
+                    fontWeight: 600,
+                  }}
+                >
+                  256-dim fastembed ONNX
+                </span>
+              </div>
+              <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                Asymmetric search queries with instruction prefixes (<code>task: search result | query:</code>)
+              </p>
             </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12 }}>
+
+            <label className="switch-container">
               <input
                 type="checkbox"
                 checked={settings.ml_enabled}
                 onChange={(e) => setSettings({ ...settings, ml_enabled: e.target.checked })}
-                style={{ accentColor: "var(--accent-violet)" }}
+                style={{ display: "none" }}
               />
-              <span style={{ fontWeight: 500 }}>Enabled</span>
+              <div className={`switch-track ${settings.ml_enabled ? "active" : ""}`}>
+                <div className="switch-thumb" />
+              </div>
             </label>
           </div>
-          <p style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.4, marginBottom: 10 }}>
-            Maps text, code, PDFs, and images into a unified 768-dimensional semantic space with asymmetric search instruction prefixes (<code>task: search result | query:</code>).
-          </p>
-          <button
-            onClick={async () => {
-              setIsReindexing(true);
-              try {
-                const s = await SiftAPI.reindexAll();
-                setLiveStatus(s);
-                if (onRefreshStatus) onRefreshStatus();
-              } catch (e) {
-                console.error("Reindex error:", e);
-                setIsReindexing(false);
-              }
-            }}
-            disabled={isBusy}
+
+          {/* Model 2: Tesseract OCR */}
+          <div
             style={{
-              fontSize: 11.5,
-              padding: "6px 14px",
-              borderRadius: "var(--radius-xs)",
-              background: isBusy ? "rgba(139, 92, 246, 0.15)" : "var(--bg-surface-elevated)",
-              border: isBusy ? "1px solid var(--accent-violet)" : "1px solid var(--border-subtle)",
-              color: "var(--text-primary)",
-              cursor: isBusy ? "not-allowed" : "pointer",
-              display: "inline-flex",
+              display: "flex",
+              justifyContent: "space-between",
               alignItems: "center",
-              gap: 6,
+              padding: "10px 12px",
+              background: "var(--bg-surface-elevated)",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: "var(--radius-xs)",
             }}
           >
-            <RefreshCw size={12} className={isBusy ? "spin" : ""} />
-            {isBusy ? "Re-indexing files in background..." : "Re-index All Files (Apply New Embeddings)"}
-          </button>
-
-          {isBusy && (
-            <div
-              style={{
-                marginTop: 10,
-                padding: "8px 12px",
-                background: "rgba(139, 92, 246, 0.08)",
-                borderRadius: "var(--radius-xs)",
-                border: "1px solid rgba(139, 92, 246, 0.25)",
-                fontSize: 11,
-                display: "flex",
-                flexDirection: "column",
-                gap: 4,
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--accent-violet-light)", fontWeight: 500 }}>
-                <span className="indicator-dot active" style={{ width: 6, height: 6 }} />
-                <span>{liveStatus?.current_operation || "Generating EmbeddingGemma 2 vectors..."}</span>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                <span style={{ fontWeight: 600, fontSize: 13 }}>Tesseract OCR Engine</span>
+                <span
+                  style={{
+                    fontSize: 10,
+                    padding: "1px 5px",
+                    borderRadius: 3,
+                    background: "rgba(245, 158, 11, 0.15)",
+                    color: "var(--accent-amber)",
+                    fontFamily: "var(--font-mono)",
+                    fontWeight: 600,
+                  }}
+                >
+                  v5.x Engine
+                </span>
               </div>
-              <div style={{ color: "var(--text-muted)", fontSize: 10.5 }}>
-                {liveStatus?.files_indexed ?? 0} files discovered • {(liveStatus?.total_embeddings ?? 0).toLocaleString()} neural vectors generated • Background ML pass active. Filename & text search remain instantly usable!
+              <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                Extracts text and word bounding coordinates from scanned documents and PNG/JPEG images.
+              </p>
+            </div>
+
+            <label className="switch-container">
+              <input
+                type="checkbox"
+                checked={settings.ocr_enabled}
+                onChange={(e) => setSettings({ ...settings, ocr_enabled: e.target.checked })}
+                style={{ display: "none" }}
+              />
+              <div className={`switch-track ${settings.ocr_enabled ? "active" : ""}`}>
+                <div className="switch-thumb" />
+              </div>
+            </label>
+          </div>
+
+          {/* Resource Profiles */}
+          <div>
+            <label style={{ display: "block", fontWeight: 500, fontSize: 12, marginBottom: 6, color: "var(--text-secondary)" }}>
+              Resource Throttling Profile
+            </label>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div
+                onClick={() => setSettings({ ...settings, resource_mode: "eco" as ResourceMode })}
+                style={{
+                  border: `1px solid ${
+                    settings.resource_mode === "eco" ? "var(--accent-emerald)" : "var(--border-subtle)"
+                  }`,
+                  backgroundColor:
+                    settings.resource_mode === "eco" ? "rgba(16, 185, 129, 0.08)" : "var(--bg-surface-elevated)",
+                  borderRadius: "var(--radius-xs)",
+                  padding: 10,
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                  <Cpu size={14} color="var(--accent-emerald)" />
+                  <span style={{ fontWeight: 600, fontSize: 12 }}>Eco Mode (Default)</span>
+                </div>
+                <p style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                  Throttled background worker threads, idle memory footprint &lt; 100MB.
+                </p>
+              </div>
+
+              <div
+                onClick={() => setSettings({ ...settings, resource_mode: "performance" as ResourceMode })}
+                style={{
+                  border: `1px solid ${
+                    settings.resource_mode === "performance" ? "var(--accent-violet)" : "var(--border-subtle)"
+                  }`,
+                  backgroundColor:
+                    settings.resource_mode === "performance" ? "var(--accent-violet-subtle)" : "var(--bg-surface-elevated)",
+                  borderRadius: "var(--radius-xs)",
+                  padding: 10,
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                  <Zap size={14} color="var(--accent-violet-light)" />
+                  <span style={{ fontWeight: 600, fontSize: 12 }}>Performance Mode</span>
+                </div>
+                <p style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                  Uncapped multi-core batch vectorization and parallel OCR processing.
+                </p>
               </div>
             </div>
-          )}
-
-          {!isBusy && (
-            <div
-              style={{
-                marginTop: 10,
-                padding: "8px 12px",
-                background: "rgba(16, 185, 129, 0.08)",
-                borderRadius: "var(--radius-xs)",
-                border: "1px solid rgba(16, 185, 129, 0.2)",
-                fontSize: 11,
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                color: "var(--accent-emerald)",
-              }}
-            >
-              <span className="indicator-dot" style={{ backgroundColor: "var(--accent-emerald)" }} />
-              <span>
-                Index ready • <strong>{(liveStatus?.files_indexed ?? 0).toLocaleString()} files</strong> indexed •{" "}
-                <strong>{(liveStatus?.total_embeddings ?? 0).toLocaleString()} neural embeddings</strong> active
-              </span>
-            </div>
-          )}
+          </div>
         </div>
 
-        {/* Offline Privacy Guarantee */}
+        {/* SECTION 5: PRIVACY GUARANTEE */}
         <div
           style={{
             backgroundColor: "var(--bg-surface)",
             border: "1px solid var(--border-subtle)",
-            borderRadius: "var(--radius-sm)",
+            borderRadius: "var(--radius-md)",
             padding: 14,
-            marginBottom: 18,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-            <Shield size={14} color="var(--accent-violet-light)" />
-            <span style={{ fontWeight: 600, fontSize: 12.5 }}>Offline Privacy Guarantee</span>
+          <Shield size={20} color="var(--accent-violet-light)" style={{ flexShrink: 0 }} />
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 12.5, color: "var(--text-primary)" }}>
+              100% Offline &amp; Private Desktop Search
+            </div>
+            <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+              All SQLite databases, Tantivy inverted indices, neural embeddings, and queries remain strictly local. Zero analytics and zero network calls.
+            </p>
           </div>
-          <p style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.4 }}>
-            All SQLite indices, queries, and file contents remain 100% on this machine.
-            Zero telemetry and zero cloud calls.
-          </p>
         </div>
 
-        <button
-          className="btn-open"
-          onClick={handleSave}
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px" }}
-        >
-          <Save size={14} />
-          {isSaved ? "Saved!" : "Save Preferences"}
-        </button>
+        {/* Save Button */}
+        <div>
+          <button
+            className="btn-open"
+            onClick={handleSave}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 18px" }}
+          >
+            {isSaved ? <CheckCircle2 size={14} /> : <Save size={14} />}
+            <span>{isSaved ? "Preferences Saved!" : "Save Preferences"}</span>
+          </button>
+        </div>
       </div>
     </div>
   );

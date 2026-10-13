@@ -28,17 +28,21 @@ export const StatusBar: React.FC<StatusBarProps> = ({
 
   return (
     <footer className="action-bar">
-      {/* Index Status Indicator */}
-      <div className="index-status-indicator">
-        <SiftBrandmark size={10} style={{ marginRight: 4, opacity: 0.85 }} />
+      {/* Index Status & Smart Incremental Details */}
+      <div
+        className="index-status-indicator"
+        title="Smart Incremental Indexing: Sift fingerprints file mtime + size in <0.5s on launch. Unchanged files are never re-embedded!"
+      >
+        <SiftBrandmark size={11} style={{ marginRight: 2, opacity: 0.9 }} />
         <span className={`indicator-dot ${isBusy ? "active" : ""}`} />
         <span>
           {isBusy
             ? status?.current_operation ||
-              `Indexing files... ${status?.total_embeddings ? `(${status.total_embeddings.toLocaleString()} embeddings)` : ""}`
+              `Indexing files... ${status?.total_embeddings ? `(${status.total_embeddings.toLocaleString()} vectors)` : ""}`
             : `${(status?.files_indexed ?? 0).toLocaleString()} files • ${(status?.total_embeddings ?? 0).toLocaleString()} embeddings`}
         </span>
 
+        {/* Force reconciliation scan button */}
         <button
           onClick={onRefreshScan}
           disabled={isBusy}
@@ -49,10 +53,11 @@ export const StatusBar: React.FC<StatusBarProps> = ({
             cursor: isBusy ? "not-allowed" : "pointer",
             display: "inline-flex",
             alignItems: "center",
-            padding: 2,
+            padding: "2px 4px",
             marginLeft: 4,
+            borderRadius: "var(--radius-xs)",
           }}
-          title="Force reconciliation scan"
+          title="Force incremental reconciliation scan (<0.5s check)"
         >
           <RefreshCw size={11} className={isBusy ? "spin" : ""} />
         </button>
@@ -60,7 +65,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
 
       {/* Action shortcuts & sheet triggers */}
       <div className="keycap-shortcuts">
-        <span className="keycap-group">
+        <span className="keycap-group" title="Open selected file">
           <span className="keycap">↵</span>
           <span>Open</span>
         </span>
@@ -68,13 +73,18 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         <button
           className={`action-icon-btn ${showPreview ? "active" : ""}`}
           onClick={onTogglePreview}
-          title="Toggle preview panel"
+          title="Toggle preview panel (Tab)"
         >
           <span className="keycap">Tab</span>
           <span>Preview</span>
         </button>
 
-        <span className="keycap-group" title="Press Escape to close or dismiss">
+        <span className="keycap-group" title="Reveal in system folder (Ctrl+R)">
+          <span className="keycap">Ctrl+R</span>
+          <span>Reveal</span>
+        </span>
+
+        <span className="keycap-group" title="Dismiss or clear search (Esc)">
           <span className="keycap">Esc</span>
           <span>Close</span>
         </span>
@@ -85,9 +95,9 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         <button
           className={`action-icon-btn ${isFoldersOpen ? "active" : ""}`}
           onClick={onOpenFolders}
-          title="Manage indexed folders"
+          title="Manage approved search directories (Ctrl+Shift+F)"
         >
-          <FolderCheck size={13} />
+          <FolderCheck size={13} color="var(--accent-violet-light)" />
           <span>Folders</span>
         </button>
 
@@ -95,9 +105,9 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         <button
           className={`action-icon-btn ${isSettingsOpen ? "active" : ""}`}
           onClick={onOpenSettings}
-          title="Configure Sift settings"
+          title="Configure Sift settings & shortcuts (Ctrl+,)"
         >
-          <Sliders size={13} />
+          <Sliders size={13} color="var(--accent-violet-light)" />
           <span>Settings</span>
         </button>
       </div>
