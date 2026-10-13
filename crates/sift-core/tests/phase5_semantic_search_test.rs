@@ -39,7 +39,7 @@ fn test_phase5_paraphrased_concept_retrieval() {
     }
 
     // 3. Initialize in-memory database with semantic embedding engine
-    let engine: Arc<dyn EmbeddingEngine> = Arc::new(DeterministicMockEngine::new(384));
+    let engine: Arc<dyn EmbeddingEngine> = Arc::new(DeterministicMockEngine::new(768));
     let db = Database::open_in_memory()
         .expect("open in memory")
         .with_embedding_engine(Some(engine));
@@ -94,7 +94,7 @@ fn test_phase5_visual_multimodal_image_search() {
             .expect("write bytes");
     }
 
-    let engine: Arc<dyn EmbeddingEngine> = Arc::new(DeterministicMockEngine::new(384));
+    let engine: Arc<dyn EmbeddingEngine> = Arc::new(DeterministicMockEngine::new(768));
     let db = Database::open_in_memory()
         .expect("open db")
         .with_embedding_engine(Some(engine));
@@ -146,7 +146,7 @@ fn test_phase5_hybrid_reciprocal_rank_fusion() {
             .expect("write");
     }
 
-    let engine: Arc<dyn EmbeddingEngine> = Arc::new(DeterministicMockEngine::new(384));
+    let engine: Arc<dyn EmbeddingEngine> = Arc::new(DeterministicMockEngine::new(768));
     let db = Database::open_in_memory()
         .expect("open db")
         .with_embedding_engine(Some(engine));
@@ -178,7 +178,7 @@ fn test_phase5_embedding_invalidation_on_deletion() {
             .expect("write");
     }
 
-    let engine: Arc<dyn EmbeddingEngine> = Arc::new(DeterministicMockEngine::new(384));
+    let engine: Arc<dyn EmbeddingEngine> = Arc::new(DeterministicMockEngine::new(768));
     let db = Database::open_in_memory()
         .expect("open db")
         .with_embedding_engine(Some(engine.clone()));

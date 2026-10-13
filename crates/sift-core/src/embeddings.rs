@@ -86,11 +86,20 @@ impl FastEmbedEngine {
     /// Initializes a local ONNX FastEmbed engine with a specific embedding model.
     pub fn try_new_with_model(model: EmbeddingModel) -> Result<Self> {
         let (dim, name) = match model {
-            EmbeddingModel::EmbeddingGemma300M => (768, "google/embeddinggemma-300m"),
-            EmbeddingModel::EmbeddingGemma300MQ => (768, "google/embeddinggemma-300m-q8"),
-            EmbeddingModel::EmbeddingGemma300MQ4 => (768, "google/embeddinggemma-300m-q4"),
+            EmbeddingModel::EmbeddingGemma300M => (
+                768,
+                "onnx-community/embeddinggemma-2-ONNX (full 740M fp32)",
+            ),
+            EmbeddingModel::EmbeddingGemma300MQ => (
+                768,
+                "onnx-community/embeddinggemma-2-ONNX (multimodal 740M quantized)",
+            ),
+            EmbeddingModel::EmbeddingGemma300MQ4 => (
+                768,
+                "onnx-community/embeddinggemma-2-ONNX (q4)",
+            ),
             EmbeddingModel::AllMiniLML6V2 => (384, "all-minilm-l6-v2"),
-            _ => (384, "fastembed-model"),
+            _ => (768, "onnx-community/embeddinggemma-2-ONNX"),
         };
 
         let text_init = TextInitOptions::new(model).with_show_download_progress(false);
@@ -181,6 +190,11 @@ impl EmbeddingEngine for FastEmbedEngine {
                 })?;
             if let Some(vec) = embeddings.into_iter().next() {
                 let mut v = vec.to_vec();
+                if v.len() < self.dimension {
+                    v.resize(self.dimension, 0.0);
+                } else if v.len() > self.dimension {
+                    v.truncate(self.dimension);
+                }
                 normalize_vector(&mut v);
                 return Ok(v);
             }
@@ -203,7 +217,7 @@ impl DeterministicMockEngine {
     pub fn new(dimension: usize) -> Self {
         Self {
             dimension,
-            model_name: "embeddinggemma-2-mock".to_string(),
+            model_name: "onnx-community/embeddinggemma-2-ONNX (mock)".to_string(),
         }
     }
 
@@ -323,7 +337,7 @@ pub fn create_default_embedding_engine() -> Arc<dyn EmbeddingEngine> {
                 "FastEmbed engine unavailable ({}); using offline deterministic mock encoder",
                 e
             );
-            Arc::new(DeterministicMockEngine::new(384))
+            Arc::new(DeterministicMockEngine::new(768))
         }
     }
 }
@@ -361,7 +375,7 @@ mod tests {
 
     #[test]
     fn test_mock_semantic_clustering() {
-        let mock = DeterministicMockEngine::new(384);
+        let mock = DeterministicMockEngine::new(768);
         let query = "how to reconnect database after timeout";
         let doc_related = "pool.rs contains retry and exponential backoff for connection";
         let doc_unrelated = "recipe for chocolate chip cookies";
@@ -384,7 +398,7 @@ mod tests {
 
     #[test]
     fn test_mock_image_vision_clustering() {
-        let mock = DeterministicMockEngine::new(384);
+        let mock = DeterministicMockEngine::new(768);
         let q_vec = mock.embed_text("beautiful sunset at ocean beach").unwrap();
         let img_path = Path::new("tests/fixtures/images/sunset_beach_photo.png");
         let img_vec = mock.embed_image(img_path).unwrap();
