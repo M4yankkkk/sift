@@ -764,7 +764,7 @@ impl Database {
 
             let vec = crate::embeddings::deserialize_vector(&blob);
             let sim = crate::embeddings::cosine_similarity(query_vec, &vec);
-            let threshold = if modality == "image" { 0.18 } else { 0.26 };
+            let threshold = if modality == "image" { 0.30 } else { 0.24 };
             if sim > threshold {
                 match best_by_file.entry(file_id.clone()) {
                     std::collections::hash_map::Entry::Occupied(mut occ) => {
@@ -805,15 +805,24 @@ impl Database {
         Ok(candidates)
     }
 
-    /// Unified search coordinating fast SQLite filename lookup, Tantivy full-text index, and semantic vector similarity.
-    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchResultItem>> {
+    /// Internal search implementation with configurable filename inclusion.
+    fn search_internal(
+        &self,
+        query: &str,
+        include_filenames: bool,
+        limit: usize,
+    ) -> Result<Vec<SearchResultItem>> {
         let q_trimmed = query.trim();
         if q_trimmed.is_empty() {
             return Ok(Vec::new());
         }
 
-        // 1. Filename matches
-        let filename_matches = self.search_filenames(q_trimmed, limit)?;
+        // 1. Filename matches (optional based on search_type)
+        let filename_matches = if include_filenames {
+            self.search_filenames(q_trimmed, limit)?
+        } else {
+            Vec::new()
+        };
 
         // 2. Full-text hits from Tantivy
         let text_hits = if let Some(ref text_index) = self.text_index {
@@ -841,11 +850,7 @@ impl Database {
             }
             // 3b. Search visual image chunks with cross-modal vision query vector
             if let Ok(vision_q_vec) = engine.embed_vision_query(q_trimmed) {
-                if let Ok(mut img_hits) = self.search_vectors_by_modality(&vision_q_vec, limit, Some(true)) {
-                    // Rescale cross-modal visual similarity so visual matches compete fairly with text matches
-                    for h in &mut img_hits {
-                        h.score = (h.score * 2.2).min(1.0);
-                    }
+                if let Ok(img_hits) = self.search_vectors_by_modality(&vision_q_vec, limit, Some(true)) {
                     hits.extend(img_hits);
                 }
             }
@@ -983,7 +988,7 @@ impl Database {
                                 hit.score * 100.0
                             ),
                             Some(format!("Visual contents match \"{}\"", q_trimmed)),
-                            (0.65 + (hit.score * 0.35)).min(1.0),
+                            (0.40 + (hit.score * 0.45)).min(1.0),
                         )
                     } else {
                         (
@@ -992,7 +997,7 @@ impl Database {
                                 hit.score * 100.0
                             ),
                             Some(hit.snippet),
-                            (0.50 + (hit.score * 0.40)).min(1.0),
+                            (0.45 + (hit.score * 0.50)).min(1.0),
                         )
                     };
 
@@ -1016,7 +1021,6 @@ impl Database {
             }
         }
 
-
         let mut results: Vec<SearchResultItem> = merged.into_values().collect();
 
         // Sort by score descending, then filename length
@@ -1029,6 +1033,30 @@ impl Database {
 
         results.truncate(limit);
         Ok(results)
+    }
+
+    /// Unified search coordinating fast SQLite filename lookup, Tantivy full-text index, and semantic vector similarity.
+    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchResultItem>> {
+        self.search_internal(query, true, limit)
+    }
+
+    /// Content-only search (Tantivy full-text + vector embeddings), excluding pure filename matches.
+    pub fn search_content(&self, query: &str, limit: usize) -> Result<Vec<SearchResultItem>> {
+        self.search_internal(query, false, limit)
+    }
+
+    /// Routes search according to explicit search_type filter ("filename", "content", or "hybrid"/"all").
+    pub fn search_with_type(
+        &self,
+        query: &str,
+        search_type: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<SearchResultItem>> {
+        match search_type {
+            Some("filename") => self.search_filenames(query, limit),
+            Some("content") => self.search_content(query, limit),
+            _ => self.search(query, limit),
+        }
     }
 
     pub fn get_file_by_id(&self, file_id: &str) -> Result<Option<FileRecord>> {

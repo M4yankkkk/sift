@@ -188,7 +188,9 @@ pub async fn search_files(
     let start = Instant::now();
     let limit = query.limit.unwrap_or(50);
 
-    let results = state.db.search(&query.query, limit)?;
+    let results = state
+        .db
+        .search_with_type(&query.query, query.search_type.as_deref(), limit)?;
     let total_matches = results.len();
     let execution_time_ms = start.elapsed().as_secs_f64() * 1000.0;
 
