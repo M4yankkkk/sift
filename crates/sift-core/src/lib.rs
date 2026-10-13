@@ -49,4 +49,11 @@ mod tests {
         init_logging();
         tracing::info!("Core initialized successfully");
     }
+
+    #[test]
+    fn test_create_engine() {
+        let engine = create_default_embedding_engine();
+        assert!(engine.dimension() > 0);
+        assert!(!engine.model_name().is_empty());
+    }
 }

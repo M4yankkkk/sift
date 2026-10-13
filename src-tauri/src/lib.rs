@@ -35,6 +35,7 @@ pub fn run() {
             remove_root,
             get_index_status,
             start_scan,
+            reindex_all,
             search_files,
             preview_result,
             open_result,

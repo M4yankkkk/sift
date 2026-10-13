@@ -38,6 +38,18 @@ pub(crate) fn spawn_scan_worker(
             .map(|s| s.default_exclusions)
             .unwrap_or_default();
 
+        let mut roots = roots;
+        // Prioritize user Documents root for immediate responsiveness
+        roots.sort_by(|a, b| {
+            if a.path.contains("Documents") {
+                std::cmp::Ordering::Less
+            } else if b.path.contains("Documents") {
+                std::cmp::Ordering::Greater
+            } else {
+                a.path.cmp(&b.path)
+            }
+        });
+
         let mut total_indexed = 0;
 
         for root in roots {
@@ -124,6 +136,18 @@ pub async fn get_index_status(state: State<'_, AppState>) -> Result<IndexStatus>
 
 #[tauri::command]
 pub async fn start_scan(state: State<'_, AppState>) -> Result<IndexStatus> {
+    spawn_scan_worker(
+        state.db.clone(),
+        state.is_scanning.clone(),
+        state.current_operation.clone(),
+        state.last_scan_completed_at.clone(),
+    );
+    Ok(state.get_status())
+}
+
+#[tauri::command]
+pub async fn reindex_all(state: State<'_, AppState>) -> Result<IndexStatus> {
+    state.db.clear_all_index_data()?;
     spawn_scan_worker(
         state.db.clone(),
         state.is_scanning.clone(),

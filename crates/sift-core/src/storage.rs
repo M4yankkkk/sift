@@ -103,6 +103,23 @@ impl Database {
         self
     }
 
+    /// Clears all files, chunks, OCR data, embeddings, and Tantivy index documents,
+    /// while preserving configured roots and application settings.
+    pub fn clear_all_index_data(&self) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM chunk_embeddings", [])?;
+        conn.execute("DELETE FROM chunks", [])?;
+        conn.execute("DELETE FROM ocr_data", [])?;
+        conn.execute("DELETE FROM files", [])?;
+        let _ = conn.execute("VACUUM", []);
+        drop(conn);
+
+        if let Some(ref text_index) = self.text_index {
+            let _ = text_index.clear();
+        }
+        Ok(())
+    }
+
     fn init_schema(&self) -> Result<()> {
         let conn = self.conn.lock().unwrap();
 
@@ -373,22 +390,28 @@ impl Database {
             // 1. If it's an image, embed visual vector if embedding engine is active
             if is_image {
                 if let Some(ref engine) = self.embedding_engine {
-                    if let Ok(img_vec) = engine.embed_image(Path::new(&path)) {
-                        let blob = crate::embeddings::serialize_vector(&img_vec);
-                        let emb_id = Uuid::new_v4().to_string();
-                        let now = Utc::now().timestamp();
-                        let conn = self.conn.lock().unwrap();
-                        let _ = conn.execute(
-                            "DELETE FROM chunk_embeddings WHERE file_id = ?1 AND modality = 'image'",
-                            params![id],
-                        );
-                        let _ = conn.execute(
-                            r#"
-                            INSERT INTO chunk_embeddings (id, file_id, chunk_index, modality, page_number, line_number, snippet, embedding, created_at)
-                            VALUES (?1, ?2, 0, 'image', NULL, NULL, ?3, ?4, ?5)
-                            "#,
-                            params![emb_id, id, filename, blob, now],
-                        );
+                    match engine.embed_image(Path::new(&path)) {
+                        Ok(img_vec) => {
+                            let blob = crate::embeddings::serialize_vector(&img_vec);
+                            let emb_id = Uuid::new_v4().to_string();
+                            let now = Utc::now().timestamp();
+                            let conn = self.conn.lock().unwrap();
+                            let _ = conn.execute(
+                                "DELETE FROM chunk_embeddings WHERE file_id = ?1 AND modality = 'image'",
+                                params![id],
+                            );
+                            let _ = conn.execute(
+                                r#"
+                                INSERT INTO chunk_embeddings (id, file_id, chunk_index, modality, page_number, line_number, snippet, embedding, created_at)
+                                VALUES (?1, ?2, 0, 'image', NULL, NULL, ?3, ?4, ?5)
+                                "#,
+                                params![emb_id, id, filename, blob, now],
+                            );
+                            tracing::info!(path = %path, "Visual vector generated successfully");
+                        }
+                        Err(e) => {
+                            tracing::warn!(path = %path, error = %e, "Failed to generate visual image embedding");
+                        }
                     }
                 }
             }
@@ -604,16 +627,44 @@ impl Database {
         query_vec: &[f32],
         limit: usize,
     ) -> Result<Vec<VectorSearchResult>> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            r#"
-            SELECT e.file_id, f.path, f.filename, e.modality, e.snippet, e.page_number, e.embedding
-            FROM chunk_embeddings e
-            JOIN files f ON e.file_id = f.id
-            WHERE f.is_deleted = 0
-            "#,
-        )?;
+        self.search_vectors_by_modality(query_vec, limit, None)
+    }
 
+    pub fn search_vectors_by_modality(
+        &self,
+        query_vec: &[f32],
+        limit: usize,
+        is_image_only: Option<bool>,
+    ) -> Result<Vec<VectorSearchResult>> {
+        let conn = self.conn.lock().unwrap();
+        let query_sql = match is_image_only {
+            Some(true) => {
+                r#"
+                SELECT e.file_id, f.path, f.filename, e.modality, e.snippet, e.page_number, e.embedding
+                FROM chunk_embeddings e
+                JOIN files f ON e.file_id = f.id
+                WHERE f.is_deleted = 0 AND e.modality = 'image'
+                "#
+            }
+            Some(false) => {
+                r#"
+                SELECT e.file_id, f.path, f.filename, e.modality, e.snippet, e.page_number, e.embedding
+                FROM chunk_embeddings e
+                JOIN files f ON e.file_id = f.id
+                WHERE f.is_deleted = 0 AND e.modality != 'image'
+                "#
+            }
+            None => {
+                r#"
+                SELECT e.file_id, f.path, f.filename, e.modality, e.snippet, e.page_number, e.embedding
+                FROM chunk_embeddings e
+                JOIN files f ON e.file_id = f.id
+                WHERE f.is_deleted = 0
+                "#
+            }
+        };
+
+        let mut stmt = conn.prepare(query_sql)?;
         let mut candidates = Vec::new();
         let mut rows = stmt.query([])?;
         while let Some(row) = rows.next()? {
@@ -627,7 +678,8 @@ impl Database {
 
             let vec = crate::embeddings::deserialize_vector(&blob);
             let sim = crate::embeddings::cosine_similarity(query_vec, &vec);
-            if sim > 0.35 {
+            let threshold = if modality == "image" { 0.18 } else { 0.35 };
+            if sim > threshold {
                 candidates.push(VectorSearchResult {
                     file_id,
                     path,
@@ -668,11 +720,30 @@ impl Database {
 
         // 3. Semantic vector hits
         let vector_hits = if let Some(ref engine) = self.embedding_engine {
+            let mut hits = Vec::new();
+            // 3a. Search conceptual document chunks with text query vector
             if let Ok(q_vec) = engine.embed_text(q_trimmed) {
-                self.search_vectors(&q_vec, limit).unwrap_or_default()
-            } else {
-                Vec::new()
+                if let Ok(text_hits) = self.search_vectors_by_modality(&q_vec, limit, Some(false)) {
+                    hits.extend(text_hits);
+                }
             }
+            // 3b. Search visual image chunks with cross-modal vision query vector
+            if let Ok(vision_q_vec) = engine.embed_vision_query(q_trimmed) {
+                if let Ok(mut img_hits) = self.search_vectors_by_modality(&vision_q_vec, limit, Some(true)) {
+                    // Rescale cross-modal visual similarity so visual matches compete fairly with text matches
+                    for h in &mut img_hits {
+                        h.score = (h.score * 2.2).min(1.0);
+                    }
+                    hits.extend(img_hits);
+                }
+            }
+            hits.sort_by(|a, b| {
+                b.score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            hits.truncate(limit);
+            hits
         } else {
             Vec::new()
         };

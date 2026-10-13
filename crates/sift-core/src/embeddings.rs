@@ -27,6 +27,11 @@ pub trait EmbeddingEngine: Send + Sync {
 
     /// Generates a normalized visual vector embedding for an image file.
     fn embed_image(&self, image_path: &Path) -> Result<Vec<f32>>;
+
+    /// Generates a normalized visual-query vector for cross-modal image searching.
+    fn embed_vision_query(&self, text: &str) -> Result<Vec<f32>> {
+        self.embed_text(text)
+    }
 }
 
 /// Computes the cosine similarity between two normalized vectors.
@@ -74,9 +79,24 @@ pub fn is_image_supported_for_vision(ext: &str) -> bool {
     )
 }
 
+/// Returns the centralized directory for Sift ML model caches to prevent disk pollution.
+pub fn get_sift_models_cache_dir() -> std::path::PathBuf {
+    if let Ok(custom) = std::env::var("SIFT_CACHE_DIR") {
+        return std::path::PathBuf::from(custom);
+    }
+    if let Ok(xdg) = std::env::var("XDG_CACHE_HOME") {
+        return std::path::PathBuf::from(xdg).join("sift").join("models");
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        return std::path::PathBuf::from(home).join(".cache").join("sift").join("models");
+    }
+    std::path::PathBuf::from(".fastembed_cache")
+}
+
 /// FastEmbed-backed local ONNX embedding engine supporting both text and vision models.
 pub struct FastEmbedEngine {
     text_model: Mutex<TextEmbedding>,
+    vision_text_model: Option<Mutex<TextEmbedding>>,
     image_model: Option<Mutex<ImageEmbedding>>,
     dimension: usize,
     model_name: String,
@@ -102,19 +122,45 @@ impl FastEmbedEngine {
             _ => (768, "onnx-community/embeddinggemma-2-ONNX"),
         };
 
-        let text_init = TextInitOptions::new(model).with_show_download_progress(false);
+        let cache_dir = get_sift_models_cache_dir();
+        let _ = std::fs::create_dir_all(&cache_dir);
+
+        let text_init = TextInitOptions::new(model)
+            .with_cache_dir(cache_dir.clone())
+            .with_show_download_progress(false);
         let text_model = TextEmbedding::try_new(text_init).map_err(|e| {
             SiftError::Internal(format!("Failed to initialize FastEmbed text model: {}", e))
         })?;
 
+        let vision_text_model = {
+            let vt_init = TextInitOptions::new(EmbeddingModel::ClipVitB32)
+                .with_cache_dir(cache_dir.clone())
+                .with_show_download_progress(false);
+            match TextEmbedding::try_new(vt_init) {
+                Ok(m) => Some(Mutex::new(m)),
+                Err(e) => {
+                    tracing::warn!("Failed to load vision text model (CLIP ViT-B/32): {}", e);
+                    None
+                }
+            }
+        };
+
         let image_model = {
             let img_init = ImageInitOptions::new(ImageEmbeddingModel::ClipVitB32)
+                .with_cache_dir(cache_dir)
                 .with_show_download_progress(false);
-            ImageEmbedding::try_new(img_init).ok().map(Mutex::new)
+            match ImageEmbedding::try_new(img_init) {
+                Ok(m) => Some(Mutex::new(m)),
+                Err(e) => {
+                    tracing::warn!("Failed to load vision image model (CLIP ViT-B/32): {}", e);
+                    None
+                }
+            }
         };
 
         Ok(Self {
             text_model: Mutex::new(text_model),
+            vision_text_model,
             image_model,
             dimension: dim,
             model_name: name.to_string(),
@@ -180,6 +226,21 @@ impl EmbeddingEngine for FastEmbedEngine {
         Ok(normalized_batch)
     }
 
+    fn embed_vision_query(&self, text: &str) -> Result<Vec<f32>> {
+        if let Some(ref vt_model_lock) = self.vision_text_model {
+            let mut vt_model = vt_model_lock.lock().unwrap();
+            let embeddings = vt_model
+                .embed(&[text.to_string()], None)
+                .map_err(|e| SiftError::Internal(format!("Vision text query error: {}", e)))?;
+            if let Some(vec) = embeddings.into_iter().next() {
+                let mut v = vec.to_vec();
+                normalize_vector(&mut v);
+                return Ok(v);
+            }
+        }
+        self.embed_text(text)
+    }
+
     fn embed_image(&self, image_path: &Path) -> Result<Vec<f32>> {
         if let Some(ref img_model_lock) = self.image_model {
             let mut img_model = img_model_lock.lock().unwrap();
@@ -190,11 +251,6 @@ impl EmbeddingEngine for FastEmbedEngine {
                 })?;
             if let Some(vec) = embeddings.into_iter().next() {
                 let mut v = vec.to_vec();
-                if v.len() < self.dimension {
-                    v.resize(self.dimension, 0.0);
-                } else if v.len() > self.dimension {
-                    v.truncate(self.dimension);
-                }
                 normalize_vector(&mut v);
                 return Ok(v);
             }

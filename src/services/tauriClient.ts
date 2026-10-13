@@ -62,6 +62,21 @@ export const SiftAPI = {
     return invoke<IndexStatus>("start_scan");
   },
 
+  reindexAll: async (): Promise<IndexStatus> => {
+    if (!isTauriEnvironment()) {
+      return {
+        total_files_discovered: 142,
+        files_indexed: 142,
+        queue_length: 0,
+        is_scanning: false,
+        is_indexing: false,
+        last_scan_completed_at: new Date().toISOString(),
+        current_operation: "Idle (mock mode)",
+      };
+    }
+    return invoke<IndexStatus>("reindex_all");
+  },
+
   getIndexStatus: async (): Promise<IndexStatus> => {
     if (!isTauriEnvironment()) {
       return {

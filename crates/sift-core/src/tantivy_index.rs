@@ -190,6 +190,23 @@ impl TantivySearchIndex {
         Ok(())
     }
 
+    /// Deletes all documents from the Tantivy index.
+    pub fn clear(&self) -> Result<()> {
+        let mut writer = self.writer.lock().map_err(|_| {
+            SiftError::Internal("Failed to acquire Tantivy index writer lock".into())
+        })?;
+        writer
+            .delete_all_documents()
+            .map_err(|e| SiftError::Storage(e.to_string()))?;
+        writer
+            .commit()
+            .map_err(|e| SiftError::Storage(e.to_string()))?;
+        self.reader
+            .reload()
+            .map_err(|e| SiftError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
     /// Commits staged index operations to make them visible to searchers.
     pub fn commit(&self) -> Result<()> {
         let mut writer = self.writer.lock().map_err(|_| {
