@@ -1,6 +1,7 @@
 import React from "react";
 import type { IndexStatus } from "../types/contract";
 import { FolderCheck, Sliders, RefreshCw } from "lucide-react";
+import { SiftBrandmark } from "./SiftLogo";
 
 interface StatusBarProps {
   status: IndexStatus | null;
@@ -29,6 +30,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
     <footer className="action-bar">
       {/* Index Status Indicator */}
       <div className="index-status-indicator">
+        <SiftBrandmark size={10} style={{ marginRight: 4, opacity: 0.85 }} />
         <span className={`indicator-dot ${isBusy ? "active" : ""}`} />
         <span>
           {isBusy

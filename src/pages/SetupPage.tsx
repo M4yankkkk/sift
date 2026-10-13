@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { Folder, Plus, Trash2, FolderCheck, X, AlertCircle } from "lucide-react";
+import { Folder, Plus, Trash2, X, AlertCircle } from "lucide-react";
 import { SiftAPI } from "../services/tauriClient";
+import { SiftBrandmark } from "../components/SiftLogo";
 import type { RootFolder } from "../types/contract";
 
 interface SetupPageProps {
@@ -55,8 +56,8 @@ export const SetupPage: React.FC<SetupPageProps> = ({ onClose }) => {
   return (
     <div className="modal-overlay">
       <div className="modal-header">
-        <div className="modal-title-stack">
-          <FolderCheck size={18} color="var(--accent-violet-light)" />
+        <div className="modal-title-stack" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <SiftBrandmark size={14} />
           <h3 style={{ fontSize: 15, fontWeight: 600 }}>Approved Search Roots</h3>
         </div>
         {onClose && (

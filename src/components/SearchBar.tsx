@@ -1,5 +1,6 @@
 import React from "react";
-import { Search, X, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { X, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { SiftBrandmark } from "./SiftLogo";
 
 export type SearchFilter = "all" | "filename" | "content";
 
@@ -26,8 +27,8 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 }) => {
   return (
     <div className="search-header">
-      <div className="search-icon-wrapper">
-        <Search size={16} />
+      <div className="search-icon-wrapper" style={{ paddingLeft: 2, paddingRight: 2 }}>
+        <SiftBrandmark size={14} />
       </div>
 
       <input

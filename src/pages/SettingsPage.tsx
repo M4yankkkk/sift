@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { Sliders, Cpu, Zap, Shield, Save, X } from "lucide-react";
+import { Cpu, Zap, Shield, Save, X } from "lucide-react";
 import { SiftAPI } from "../services/tauriClient";
+import { SiftBrandmark } from "../components/SiftLogo";
 import type { AppSettings, ResourceMode } from "../types/contract";
 
 interface SettingsPageProps {
@@ -37,8 +38,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onClose }) => {
   return (
     <div className="modal-overlay">
       <div className="modal-header">
-        <div className="modal-title-stack">
-          <Sliders size={18} color="var(--accent-violet-light)" />
+        <div className="modal-title-stack" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <SiftBrandmark size={14} />
           <h3 style={{ fontSize: 15, fontWeight: 600 }}>Preferences</h3>
         </div>
         {onClose && (
