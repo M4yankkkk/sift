@@ -122,8 +122,9 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            global_shortcut: "Ctrl+Space".to_string(),
+            global_shortcut: "Ctrl+Alt+Space".to_string(),
             resource_mode: ResourceMode::Eco,
+
 
             ml_enabled: false,
             ocr_enabled: true,

@@ -1152,7 +1152,8 @@ mod tests {
         let db = Database::open_in_memory().expect("in-memory db opens");
 
         let default_settings = db.get_settings().expect("get default settings");
-        assert_eq!(default_settings.global_shortcut, "Ctrl+Space");
+        assert_eq!(default_settings.global_shortcut, "Ctrl+Alt+Space");
+
 
 
         let mut custom_settings = default_settings;

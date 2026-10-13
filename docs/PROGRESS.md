@@ -135,7 +135,7 @@
 ### 7. Completed in Phase 6 (Polish, Global Shortcut, Resource Modes & Validation)
 - [x] **Configurable Global System Shortcut (`tauri-plugin-global-shortcut`)**:
   - Integrated `tauri-plugin-global-shortcut 2.4.1` with native Ubuntu X11/Wayland support.
-  - Configurable key combination (defaults to `Ctrl+Space`, editable in Preferences to `Super+Space`, `Alt+Shift+S`, etc.).
+  - Configurable key combination (defaults to conflict-free `Ctrl+Alt+Space`, editable in Preferences to `Ctrl+Alt+S`, etc.).
 
   - Global toggle behavior: When the shortcut is pressed anywhere on the desktop, Sift is shown, unminimized, and focused; pressing it while focused hides the launcher.
   - Dynamic shortcut re-binding: Changing the hotkey in Preferences immediately rebinds the listener without restarting.

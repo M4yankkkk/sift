@@ -6,9 +6,10 @@ use tempfile::Builder;
 fn test_phase6_settings_resource_mode_and_shortcut_persistence() {
     let db = Database::open_in_memory().expect("open db");
 
-    // 1. Initial settings should default to Eco mode and Ctrl+Space
+    // 1. Initial settings should default to Eco mode and Alt+Shift+S
     let initial = db.get_settings().expect("get settings");
-    assert_eq!(initial.global_shortcut, "Ctrl+Space");
+    assert_eq!(initial.global_shortcut, "Ctrl+Alt+Space");
+
 
     assert_eq!(initial.resource_mode, ResourceMode::Eco);
     assert_eq!(initial.max_file_size_mb, 25);

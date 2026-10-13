@@ -31,7 +31,8 @@ pub fn run() {
         .db
         .get_settings()
         .map(|s| s.global_shortcut)
-        .unwrap_or_else(|_| "Ctrl+Space".to_string());
+        .unwrap_or_else(|_| "Ctrl+Alt+Space".to_string());
+
 
 
     tauri::Builder::default()
@@ -87,4 +88,20 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running Sift tauri application");
 }
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+    use tauri_plugin_global_shortcut::Shortcut;
+
+    #[test]
+    fn test_shortcut_parsing() {
+        assert!(Shortcut::from_str("Alt+Shift+S").is_ok());
+        assert!(Shortcut::from_str("Ctrl+Alt+Space").is_ok());
+        assert!(Shortcut::from_str("Ctrl+Alt+S").is_ok());
+        assert!(Shortcut::from_str("Alt+Shift+Space").is_ok());
+        assert!(Shortcut::from_str("Ctrl+Shift+Space").is_ok());
+    }
+}
+
 
