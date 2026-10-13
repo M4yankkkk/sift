@@ -8,6 +8,7 @@ pub mod jobs;
 pub mod scanner;
 pub mod search;
 pub mod storage;
+pub mod tray;
 pub mod watcher;
 
 use app::AppState;
@@ -57,6 +58,11 @@ pub fn run() {
 
             // Synchronize GNOME keybinding for Wayland support
             ipc::sync_gnome_shortcut(&initial_shortcut);
+
+            // Setup system tray icon with menu (Open Sift, Preferences, Quit)
+            if let Err(e) = tray::setup_tray(app) {
+                tracing::warn!("Failed to setup system tray: {}", e);
+            }
 
             // Register fallback in-process global shortcut
             use tauri_plugin_global_shortcut::GlobalShortcutExt;

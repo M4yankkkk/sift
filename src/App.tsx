@@ -52,6 +52,22 @@ export const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [fetchStatus]);
 
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    import("@tauri-apps/api/event")
+      .then(({ listen }) => {
+        listen("open-settings", () => {
+          setIsSettingsOpen(true);
+        }).then((u) => {
+          unlisten = u;
+        });
+      })
+      .catch(() => {});
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
+
   const currentSearchSeqRef = React.useRef(0);
 
   // Search logic
