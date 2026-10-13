@@ -3,6 +3,7 @@ pub mod commands;
 pub mod embeddings;
 pub mod extract;
 pub mod indexing;
+pub mod ipc;
 pub mod jobs;
 pub mod scanner;
 pub mod search;
@@ -12,8 +13,8 @@ pub mod watcher;
 use app::AppState;
 use commands::*;
 use sift_core::storage::Database;
-use tauri::Manager;
 
+pub use ipc::send_toggle_signal;
 
 pub fn run() {
     sift_core::init_logging();
@@ -33,8 +34,6 @@ pub fn run() {
         .map(|s| s.global_shortcut)
         .unwrap_or_else(|_| "Ctrl+Alt+Space".to_string());
 
-
-
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(
@@ -43,23 +42,23 @@ pub fn run() {
                     use tauri_plugin_global_shortcut::ShortcutState;
                     if event.state() == ShortcutState::Pressed {
                         tracing::info!("Global shortcut triggered: {:?}", shortcut);
-                        if let Some(window) = app.get_webview_window("main") {
-                            let is_visible = window.is_visible().unwrap_or(false);
-                            let is_focused = window.is_focused().unwrap_or(false);
-                            if is_visible && is_focused {
-                                let _ = window.hide();
-                            } else {
-                                let _ = window.show();
-                                let _ = window.unminimize();
-                                let _ = window.set_focus();
-                            }
-                        }
+                        ipc::toggle_main_window(app);
                     }
                 })
                 .build(),
         )
         .manage(app_state)
         .setup(move |app| {
+            // Start Unix domain socket listener for instant desktop toggling (like Ulauncher)
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                ipc::start_ipc_server(handle);
+            });
+
+            // Synchronize GNOME keybinding for Wayland support
+            ipc::sync_gnome_shortcut(&initial_shortcut);
+
+            // Register fallback in-process global shortcut
             use tauri_plugin_global_shortcut::GlobalShortcutExt;
             let registered = app.global_shortcut().register(initial_shortcut.as_str());
             if let Err(e) = registered {

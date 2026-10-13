@@ -63,7 +63,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onClose }) => {
             Global Launch Shortcut
           </label>
           <p style={{ fontSize: 11.5, color: "var(--text-muted)", marginBottom: 10 }}>
-            System-wide key combination to invoke this search launcher.
+            System-wide key combination to toggle Sift (auto-synced with GNOME Shortcuts &amp; sift-toggle on Linux).
           </p>
           <input
             type="text"

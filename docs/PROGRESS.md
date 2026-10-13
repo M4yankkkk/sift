@@ -136,9 +136,9 @@
 - [x] **Configurable Global System Shortcut (`tauri-plugin-global-shortcut`)**:
   - Integrated `tauri-plugin-global-shortcut 2.4.1` with native Ubuntu X11/Wayland support.
   - Configurable key combination (defaults to conflict-free `Ctrl+Alt+Space`, editable in Preferences to `Ctrl+Alt+S`, etc.).
-
+  - **Ulauncher-Style Wayland Integration**: On Ubuntu GNOME Wayland (where regular apps cannot listen to global keyboard hooks due to compositor isolation), Sift auto-registers with GNOME's native keybinding daemon (`org.gnome.settings-daemon.plugins.media-keys`) and listens on an instant Unix Domain Socket (`sift.sock`). The companion helper `sift-toggle` triggers immediate window presentation, focus, and toggling across all workspaces, exactly matching Ulauncher's architecture.
   - Global toggle behavior: When the shortcut is pressed anywhere on the desktop, Sift is shown, unminimized, and focused; pressing it while focused hides the launcher.
-  - Dynamic shortcut re-binding: Changing the hotkey in Preferences immediately rebinds the listener without restarting.
+  - Dynamic shortcut re-binding: Changing the hotkey in Preferences immediately rebinds the listener and updates GNOME custom keybindings without restarting.
 - [x] **Escape Window Dismiss & Quick Launcher UX**:
   - Pressing `Escape` closes open modal sheets first; if none are open and the search bar has text, it clears the query; if already empty, it smoothly hides the launcher.
   - `hide_window` native Tauri command for frontend window dismissal.

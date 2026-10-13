@@ -317,6 +317,7 @@ pub async fn set_settings(
         } else {
             tracing::info!("Rebound global shortcut to '{}'", settings.global_shortcut);
         }
+        crate::ipc::sync_gnome_shortcut(&settings.global_shortcut);
     }
 
     Ok(settings)
