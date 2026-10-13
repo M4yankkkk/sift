@@ -1,17 +1,21 @@
 use tauri::Manager;
 
-pub fn toggle_main_window(app: &tauri::AppHandle) {
+pub fn toggle_main_window(app: &tauri::AppHandle) -> bool {
     if let Some(window) = app.get_webview_window("main") {
         let is_visible = window.is_visible().unwrap_or(false);
         let is_focused = window.is_focused().unwrap_or(false);
         if is_visible && is_focused {
             let _ = window.hide();
+            return false;
         } else {
             let _ = window.show();
             let _ = window.unminimize();
+            let _ = window.set_always_on_top(true);
             let _ = window.set_focus();
+            return true;
         }
     }
+    false
 }
 
 pub fn send_toggle_signal() -> bool {
@@ -67,7 +71,13 @@ pub fn start_ipc_server(app_handle: tauri::AppHandle) {
         if let Ok(mut stream) = stream {
             let mut buf = [0u8; 16];
             let _ = stream.read(&mut buf);
-            toggle_main_window(&app_handle);
+            let shown = toggle_main_window(&app_handle);
+            use std::io::Write;
+            if shown {
+                let _ = stream.write_all(b"shown\n");
+            } else {
+                let _ = stream.write_all(b"hidden\n");
+            }
         }
     }
 }
