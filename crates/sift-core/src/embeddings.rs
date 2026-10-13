@@ -176,13 +176,10 @@ impl FastEmbedEngine {
             .unwrap_or_else(|_| "gemma".to_string());
 
         let target_model = match model_choice.to_lowercase().as_str() {
-            "gemma" | "gemma-q" | "gemma300m" | "embeddinggemma" => {
-                EmbeddingModel::EmbeddingGemma300MQ
-            }
-            "gemma-full" | "gemma-300m-full" => EmbeddingModel::EmbeddingGemma300M,
-            "gemma-q4" => EmbeddingModel::EmbeddingGemma300MQ4,
             "minilm" => EmbeddingModel::AllMiniLML6V2,
-            _ => EmbeddingModel::EmbeddingGemma300MQ,
+            "gemma-q" => EmbeddingModel::EmbeddingGemma300MQ,
+            "gemma-q4" => EmbeddingModel::EmbeddingGemma300MQ4,
+            _ => EmbeddingModel::EmbeddingGemma300M,
         };
 
         match Self::try_new_with_model(target_model.clone()) {

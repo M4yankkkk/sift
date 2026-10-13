@@ -55,5 +55,8 @@ mod tests {
         let engine = create_default_embedding_engine();
         assert!(engine.dimension() > 0);
         assert!(!engine.model_name().is_empty());
+        let vec = engine.embed_text("sunset").unwrap();
+        assert_eq!(vec.len(), engine.dimension());
     }
 }
+

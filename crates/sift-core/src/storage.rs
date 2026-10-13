@@ -382,6 +382,17 @@ impl Database {
             tx.commit()?;
         } // MutexGuard is dropped here before Tantivy chunk ingestion
 
+        // Prioritize visual images first so image search is instantly responsive on launch
+        file_records_to_index.sort_by(|a, b| {
+            let is_img_a = crate::embeddings::is_image_supported_for_vision(&a.2);
+            let is_img_b = crate::embeddings::is_image_supported_for_vision(&b.2);
+            match (is_img_a, is_img_b) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => std::cmp::Ordering::Equal,
+            }
+        });
+
         // Ingest and index document chunks into Tantivy and vector embeddings
         for (path, filename, extension, id) in file_records_to_index {
             let is_image = crate::embeddings::is_image_supported_for_vision(&extension);
@@ -665,7 +676,8 @@ impl Database {
         };
 
         let mut stmt = conn.prepare(query_sql)?;
-        let mut candidates = Vec::new();
+        let mut best_by_file: std::collections::HashMap<String, VectorSearchResult> =
+            std::collections::HashMap::new();
         let mut rows = stmt.query([])?;
         while let Some(row) = rows.next()? {
             let file_id: String = row.get(0)?;
@@ -678,20 +690,38 @@ impl Database {
 
             let vec = crate::embeddings::deserialize_vector(&blob);
             let sim = crate::embeddings::cosine_similarity(query_vec, &vec);
-            let threshold = if modality == "image" { 0.18 } else { 0.35 };
+            let threshold = if modality == "image" { 0.18 } else { 0.42 };
             if sim > threshold {
-                candidates.push(VectorSearchResult {
-                    file_id,
-                    path,
-                    filename,
-                    score: sim,
-                    modality,
-                    snippet,
-                    page_number,
-                });
+                match best_by_file.entry(file_id.clone()) {
+                    std::collections::hash_map::Entry::Occupied(mut occ) => {
+                        if sim > occ.get().score {
+                            occ.insert(VectorSearchResult {
+                                file_id,
+                                path,
+                                filename,
+                                score: sim,
+                                modality,
+                                snippet,
+                                page_number,
+                            });
+                        }
+                    }
+                    std::collections::hash_map::Entry::Vacant(vac) => {
+                        vac.insert(VectorSearchResult {
+                            file_id,
+                            path,
+                            filename,
+                            score: sim,
+                            modality,
+                            snippet,
+                            page_number,
+                        });
+                    }
+                }
             }
         }
 
+        let mut candidates: Vec<VectorSearchResult> = best_by_file.into_values().collect();
         candidates.sort_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
@@ -832,8 +862,8 @@ impl Database {
         for hit in vector_hits {
             let is_visual = hit.modality == "image";
             if let Some(existing) = merged.get_mut(&hit.file_id) {
-                // Both previous matches and semantic matched
-                existing.score += hit.score * 0.35;
+                // Both previous matches (filename/full-text) and semantic matched
+                existing.score = (existing.score + hit.score * 0.35).min(1.0);
                 let reason = if is_visual {
                     format!(
                         "Visual semantic match ({:.0}% relevance)",
@@ -845,7 +875,13 @@ impl Database {
                         hit.score * 100.0
                     )
                 };
-                existing.match_reasons.push(reason);
+                if !existing
+                    .match_reasons
+                    .iter()
+                    .any(|r| r.starts_with("Semantic") || r.starts_with("Visual"))
+                {
+                    existing.match_reasons.push(reason);
+                }
                 if existing.snippet.is_none() {
                     existing.snippet = Some(hit.snippet);
                 }
@@ -858,13 +894,14 @@ impl Database {
                     if file_rec.is_deleted {
                         continue;
                     }
-                    let (reason, snippet) = if is_visual {
+                    let (reason, snippet, score) = if is_visual {
                         (
                             format!(
                                 "Visual semantic match ({:.0}% similarity)",
                                 hit.score * 100.0
                             ),
                             Some(format!("Visual contents match \"{}\"", q_trimmed)),
+                            (0.65 + (hit.score * 0.35)).min(1.0),
                         )
                     } else {
                         (
@@ -873,6 +910,7 @@ impl Database {
                                 hit.score * 100.0
                             ),
                             Some(hit.snippet),
+                            (0.50 + (hit.score * 0.40)).min(1.0),
                         )
                     };
 
@@ -885,7 +923,7 @@ impl Database {
                             extension: file_rec.extension,
                             size_bytes: file_rec.size_bytes,
                             modified_at: file_rec.modified_at,
-                            score: 0.50 + (hit.score * 0.40),
+                            score,
                             match_type: MatchType::Semantic,
                             match_reasons: vec![reason],
                             snippet,
@@ -895,6 +933,7 @@ impl Database {
                 }
             }
         }
+
 
         let mut results: Vec<SearchResultItem> = merged.into_values().collect();
 

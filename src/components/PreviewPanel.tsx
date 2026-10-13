@@ -337,11 +337,11 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
         <div className="matched-snippet-callout">
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4, fontWeight: 600 }}>
             <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-              <Sparkles size={12} color="var(--accent-violet-light)" />
+              <Sparkles size={12} color={item.match_type === "semantic" ? "#34d399" : "var(--accent-violet-light)"} />
               {item.match_type === "semantic" ? "Semantic Match Context:" : "Matched Context:"}
             </span>
             {item.match_reasons && item.match_reasons.length > 0 && (
-              <span style={{ fontSize: 10, color: "var(--accent-violet-light)", fontWeight: 500 }}>
+              <span style={{ fontSize: 10, color: item.match_type === "semantic" ? "#34d399" : "var(--accent-violet-light)", fontWeight: 500 }}>
                 {item.match_reasons[0]}
               </span>
             )}

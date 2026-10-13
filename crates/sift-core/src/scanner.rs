@@ -137,6 +137,21 @@ pub fn scan_directory(root: &Path, exclusions: &[String]) -> Result<Vec<FileMeta
         }
     }
 
+    // Prioritize root-level files and images first for immediate launch responsiveness
+    files.sort_by(|a, b| {
+        let is_img_a = crate::embeddings::is_image_supported_for_vision(&a.extension);
+        let is_img_b = crate::embeddings::is_image_supported_for_vision(&b.extension);
+        match (is_img_a, is_img_b) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => {
+                let depth_a = a.path.matches('/').count();
+                let depth_b = b.path.matches('/').count();
+                depth_a.cmp(&depth_b).then_with(|| a.filename.cmp(&b.filename))
+            }
+        }
+    });
+
     Ok(files)
 }
 
