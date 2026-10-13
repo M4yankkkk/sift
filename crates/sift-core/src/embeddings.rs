@@ -83,10 +83,17 @@ pub struct FastEmbedEngine {
 }
 
 impl FastEmbedEngine {
-    /// Initializes a local ONNX FastEmbed engine.
-    pub fn try_new() -> Result<Self> {
-        let text_init =
-            TextInitOptions::new(EmbeddingModel::AllMiniLML6V2).with_show_download_progress(false);
+    /// Initializes a local ONNX FastEmbed engine with a specific embedding model.
+    pub fn try_new_with_model(model: EmbeddingModel) -> Result<Self> {
+        let (dim, name) = match model {
+            EmbeddingModel::EmbeddingGemma300M => (768, "google/embeddinggemma-300m"),
+            EmbeddingModel::EmbeddingGemma300MQ => (768, "google/embeddinggemma-300m-q8"),
+            EmbeddingModel::EmbeddingGemma300MQ4 => (768, "google/embeddinggemma-300m-q4"),
+            EmbeddingModel::AllMiniLML6V2 => (384, "all-minilm-l6-v2"),
+            _ => (384, "fastembed-model"),
+        };
+
+        let text_init = TextInitOptions::new(model).with_show_download_progress(false);
         let text_model = TextEmbedding::try_new(text_init).map_err(|e| {
             SiftError::Internal(format!("Failed to initialize FastEmbed text model: {}", e))
         })?;
@@ -100,9 +107,40 @@ impl FastEmbedEngine {
         Ok(Self {
             text_model: Mutex::new(text_model),
             image_model,
-            dimension: 384,
-            model_name: "fastembed-multimodal".to_string(),
+            dimension: dim,
+            model_name: name.to_string(),
         })
+    }
+
+    /// Initializes a local ONNX FastEmbed engine.
+    /// Checks `SIFT_EMBEDDING_MODEL` environment variable (e.g. "gemma", "gemma-full", "minilm").
+    /// Defaults to Google's EmbeddingGemma (`EmbeddingModel::EmbeddingGemma300MQ`) if available,
+    /// falling back gracefully to `AllMiniLML6V2` if initial Gemma download is unavailable.
+    pub fn try_new() -> Result<Self> {
+        let model_choice = std::env::var("SIFT_EMBEDDING_MODEL")
+            .unwrap_or_else(|_| "gemma".to_string());
+
+        let target_model = match model_choice.to_lowercase().as_str() {
+            "gemma" | "gemma-q" | "gemma300m" | "embeddinggemma" => {
+                EmbeddingModel::EmbeddingGemma300MQ
+            }
+            "gemma-full" | "gemma-300m-full" => EmbeddingModel::EmbeddingGemma300M,
+            "gemma-q4" => EmbeddingModel::EmbeddingGemma300MQ4,
+            "minilm" => EmbeddingModel::AllMiniLML6V2,
+            _ => EmbeddingModel::EmbeddingGemma300MQ,
+        };
+
+        match Self::try_new_with_model(target_model.clone()) {
+            Ok(engine) => Ok(engine),
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to initialize requested model {:?} ({}); falling back to lightweight MiniLM",
+                    target_model,
+                    e
+                );
+                Self::try_new_with_model(EmbeddingModel::AllMiniLML6V2)
+            }
+        }
     }
 }
 
@@ -273,7 +311,11 @@ pub fn create_default_embedding_engine() -> Arc<dyn EmbeddingEngine> {
     // Attempt to load FastEmbed ONNX local models; fall back to fast deterministic mock if unavailable
     match FastEmbedEngine::try_new() {
         Ok(engine) => {
-            tracing::info!("Initialized local FastEmbed multimodal embedding engine");
+            tracing::info!(
+                "Initialized local FastEmbed multimodal embedding engine (model: {}, dimension: {})",
+                engine.model_name(),
+                engine.dimension()
+            );
             Arc::new(engine)
         }
         Err(e) => {

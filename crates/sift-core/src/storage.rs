@@ -21,6 +21,18 @@ pub struct VectorSearchResult {
     pub snippet: String,
     pub page_number: Option<i32>,
 }
+/// Safely truncates a string to at most `max_bytes` without slicing inside a multi-byte UTF-8 character.
+pub fn safe_truncate_str(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        s.to_string()
+    } else {
+        let mut end = max_bytes;
+        while !s.is_char_boundary(end) && end > 0 {
+            end -= 1;
+        }
+        format!("{}...", &s[..end])
+    }
+}
 
 #[derive(Clone)]
 pub struct Database {
@@ -430,11 +442,7 @@ impl Database {
                                 let blob = crate::embeddings::serialize_vector(&ocr_vec);
                                 let emb_id = Uuid::new_v4().to_string();
                                 let now = Utc::now().timestamp();
-                                let snippet = if ocr_res.full_text.len() > 250 {
-                                    format!("{}...", &ocr_res.full_text[..247])
-                                } else {
-                                    ocr_res.full_text.clone()
-                                };
+                                let snippet = safe_truncate_str(&ocr_res.full_text, 247);
                                 let conn = self.conn.lock().unwrap();
                                 let _ = conn.execute(
                                     "DELETE FROM chunk_embeddings WHERE file_id = ?1 AND modality = 'ocr'",
@@ -481,11 +489,7 @@ impl Database {
                                 let blob = crate::embeddings::serialize_vector(&chunk_vec);
                                 let emb_id = Uuid::new_v4().to_string();
                                 let now = Utc::now().timestamp();
-                                let snippet = if chunk.content.len() > 250 {
-                                    format!("{}...", &chunk.content[..247])
-                                } else {
-                                    chunk.content.clone()
-                                };
+                                let snippet = safe_truncate_str(&chunk.content, 247);
                                 let conn = self.conn.lock().unwrap();
                                 let _ = conn.execute(
                                     r#"
