@@ -16,11 +16,12 @@
         "title": "Sift",
         "width": 720,
         "height": 480,
-        "resizable": true,
+        "resizable": false,
         "fullscreen": false,
         "center": true,
         "alwaysOnTop": true,
-        "skipTaskbar": true
+        "skipTaskbar": true,
+        "decorations": false
       }
     ],
 

@@ -154,7 +154,32 @@ export const App: React.FC = () => {
   // Keyboard navigation (ArrowUp, ArrowDown, Enter, Tab, Escape)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Escape handling
+      // Fast window dismissal via Ctrl+W / Ctrl+Q
+      if ((e.ctrlKey && e.key.toLowerCase() === "w") || (e.ctrlKey && e.key.toLowerCase() === "q")) {
+        e.preventDefault();
+        SiftAPI.hideWindow().catch(console.error);
+        return;
+      }
+
+      // Settings / Folders modal sheet toggle shortcuts (Ctrl+, and Ctrl+Shift+F)
+      if (e.ctrlKey && e.key === ",") {
+        e.preventDefault();
+        setIsSettingsOpen((prev) => !prev);
+        return;
+      }
+
+      // Focus search input on Ctrl+L
+      if (e.ctrlKey && e.key.toLowerCase() === "l") {
+        e.preventDefault();
+        const input = document.querySelector<HTMLInputElement>(".search-input-field");
+        if (input) {
+          input.focus();
+          input.select();
+        }
+        return;
+      }
+
+      // Escape handling: closes sheets -> clears query -> hides window (Shift+Esc hides instantly)
       if (e.key === "Escape") {
         if (isFoldersOpen) {
           setIsFoldersOpen(false);
@@ -166,7 +191,7 @@ export const App: React.FC = () => {
           e.preventDefault();
           return;
         }
-        if (query) {
+        if (query && !e.shiftKey) {
           setQuery("");
           e.preventDefault();
           return;
@@ -176,7 +201,6 @@ export const App: React.FC = () => {
         return;
       }
 
-
       // Tab toggles expandable preview
       if (e.key === "Tab") {
         e.preventDefault();
@@ -184,23 +208,30 @@ export const App: React.FC = () => {
         return;
       }
 
-      // Enter opens selected result
-      if (e.key === "Enter" && selectedItem) {
+      // Enter or Ctrl+O opens selected result
+      if ((e.key === "Enter" || (e.ctrlKey && e.key.toLowerCase() === "o")) && selectedItem) {
         e.preventDefault();
         SiftAPI.openResult(selectedItem.path);
         return;
       }
 
-      // Navigation through results
+      // Ctrl+R reveals selected file in folder
+      if (e.ctrlKey && e.key.toLowerCase() === "r" && selectedItem) {
+        e.preventDefault();
+        SiftAPI.revealResult(selectedItem.path);
+        return;
+      }
+
+      // Navigation through results (Arrows or Ctrl+N / Ctrl+P)
       if (results.length > 0) {
         const currentIndex = results.findIndex((r) => r.id === selectedId);
 
-        if (e.key === "ArrowDown") {
+        if (e.key === "ArrowDown" || (e.ctrlKey && e.key.toLowerCase() === "n")) {
           e.preventDefault();
           const nextIndex =
             currentIndex < results.length - 1 ? currentIndex + 1 : 0;
           setSelectedId(results[nextIndex].id);
-        } else if (e.key === "ArrowUp") {
+        } else if (e.key === "ArrowUp" || (e.ctrlKey && e.key.toLowerCase() === "p")) {
           e.preventDefault();
           const prevIndex =
             currentIndex > 0 ? currentIndex - 1 : results.length - 1;

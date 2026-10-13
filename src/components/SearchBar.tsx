@@ -1,6 +1,6 @@
 import React from "react";
 import { X, PanelRightClose, PanelRightOpen } from "lucide-react";
-import { SiftBrandmark } from "./SiftLogo";
+import { SiftFullLogo } from "./SiftLogo";
 
 export type SearchFilter = "all" | "filename" | "content";
 
@@ -26,9 +26,14 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   placeholder = "Search files, content, or meaning...",
 }) => {
   return (
-    <div className="search-header">
-      <div className="search-icon-wrapper" style={{ paddingLeft: 2, paddingRight: 2 }}>
-        <SiftBrandmark size={14} />
+    <div className="search-header" data-tauri-drag-region>
+      <div
+        className="search-brand-badge"
+        data-tauri-drag-region
+        title="Sift - Fast Desktop Search"
+      >
+        <SiftFullLogo height={21} />
+        <div className="brand-badge-divider" />
       </div>
 
       <input

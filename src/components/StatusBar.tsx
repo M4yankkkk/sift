@@ -73,6 +73,11 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           <span>Preview</span>
         </button>
 
+        <span className="keycap-group" title="Press Escape to close or dismiss">
+          <span className="keycap">Esc</span>
+          <span>Close</span>
+        </span>
+
         <span style={{ color: "var(--border-subtle)" }}>|</span>
 
         {/* Folders Sheet Trigger */}
