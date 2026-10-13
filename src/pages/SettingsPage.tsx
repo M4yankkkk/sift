@@ -9,8 +9,9 @@ interface SettingsPageProps {
 
 export const SettingsPage: React.FC<SettingsPageProps> = ({ onClose }) => {
   const [settings, setSettings] = useState<AppSettings>({
-    global_shortcut: "Alt+Space",
+    global_shortcut: "Ctrl+Space",
     resource_mode: "eco",
+
     ml_enabled: false,
     ocr_enabled: false,
     default_exclusions: [".git", "node_modules", "target", "dist", ".cache"],

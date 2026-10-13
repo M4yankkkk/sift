@@ -155,8 +155,9 @@ export const SiftAPI = {
   getSettings: async (): Promise<AppSettings> => {
     if (!isTauriEnvironment()) {
       return {
-        global_shortcut: "Alt+Space",
+        global_shortcut: "Ctrl+Space",
         resource_mode: "eco",
+
         ml_enabled: false,
         ocr_enabled: false,
         default_exclusions: [

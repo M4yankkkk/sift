@@ -31,7 +31,8 @@ pub fn run() {
         .db
         .get_settings()
         .map(|s| s.global_shortcut)
-        .unwrap_or_else(|_| "Alt+Space".to_string());
+        .unwrap_or_else(|_| "Ctrl+Space".to_string());
+
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
