@@ -299,8 +299,35 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<AppSettings> {
 #[tauri::command]
 pub async fn set_settings(
     settings: AppSettings,
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<AppSettings> {
+    let old_settings = state.db.get_settings().unwrap_or_default();
     state.db.save_settings(&settings)?;
+
+    if old_settings.global_shortcut != settings.global_shortcut {
+        use tauri_plugin_global_shortcut::GlobalShortcutExt;
+        let _ = app.global_shortcut().unregister(old_settings.global_shortcut.as_str());
+        if let Err(e) = app.global_shortcut().register(settings.global_shortcut.as_str()) {
+            tracing::warn!(
+                "Failed to rebind global shortcut to '{}': {}",
+                settings.global_shortcut,
+                e
+            );
+        } else {
+            tracing::info!("Rebound global shortcut to '{}'", settings.global_shortcut);
+        }
+    }
+
     Ok(settings)
 }
+
+#[tauri::command]
+pub async fn hide_window(app: tauri::AppHandle) -> Result<()> {
+    use tauri::Manager;
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+    Ok(())
+}
+

@@ -393,6 +393,11 @@ impl Database {
             }
         });
 
+        let is_eco = self
+            .get_settings()
+            .map(|s| s.resource_mode == crate::models::ResourceMode::Eco)
+            .unwrap_or(false);
+
         // Ingest and index document chunks into Tantivy and vector embeddings
         for (path, filename, extension, id) in file_records_to_index {
             let is_image = crate::embeddings::is_image_supported_for_vision(&extension);
@@ -401,7 +406,12 @@ impl Database {
             // 1. If it's an image, embed visual vector if embedding engine is active
             if is_image {
                 if let Some(ref engine) = self.embedding_engine {
+                    if is_eco {
+                        // Eco mode throttles background heavy ML passes to conserve CPU and battery
+                        std::thread::sleep(std::time::Duration::from_millis(20));
+                    }
                     match engine.embed_image(Path::new(&path)) {
+
                         Ok(img_vec) => {
                             let blob = crate::embeddings::serialize_vector(&img_vec);
                             let emb_id = Uuid::new_v4().to_string();

@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Sift",
         "width": 720,
         "height": 480,
@@ -20,6 +21,7 @@
         "center": true
       }
     ],
+
     "security": {
       "csp": null
     }

@@ -5,6 +5,8 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "shell:default"
+    "shell:default",
+    "global-shortcut:default"
   ]
 }
+

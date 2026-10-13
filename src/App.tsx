@@ -52,9 +52,12 @@ export const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [fetchStatus]);
 
+  const currentSearchSeqRef = React.useRef(0);
+
   // Search logic
   const performSearch = useCallback(
     async (q: string, filter: SearchFilter) => {
+      const seq = ++currentSearchSeqRef.current;
       if (!q.trim()) {
         setResults([]);
         setSelectedId(null);
@@ -69,6 +72,10 @@ export const App: React.FC = () => {
           query: q,
           search_type: searchType,
         });
+        if (seq !== currentSearchSeqRef.current) {
+          // Stale in-flight query response dropped
+          return;
+        }
         setResults(resp.results);
         if (resp.results.length > 0) {
           setSelectedId(resp.results[0].id);
@@ -77,9 +84,13 @@ export const App: React.FC = () => {
           setPreview(null);
         }
       } catch (err) {
-        console.error("Search failed:", err);
+        if (seq === currentSearchSeqRef.current) {
+          console.error("Search failed:", err);
+        }
       } finally {
-        setIsSearching(false);
+        if (seq === currentSearchSeqRef.current) {
+          setIsSearching(false);
+        }
       }
     },
     []
@@ -144,7 +155,11 @@ export const App: React.FC = () => {
           e.preventDefault();
           return;
         }
+        e.preventDefault();
+        SiftAPI.hideWindow().catch(console.error);
+        return;
       }
+
 
       // Tab toggles expandable preview
       if (e.key === "Tab") {

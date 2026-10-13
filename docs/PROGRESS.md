@@ -132,36 +132,43 @@
 
 ---
 
-### 7. Test Verification Results
+### 7. Completed in Phase 6 (Polish, Global Shortcut, Resource Modes & Validation)
+- [x] **Configurable Global System Shortcut (`tauri-plugin-global-shortcut`)**:
+  - Integrated `tauri-plugin-global-shortcut 2.4.1` with native Ubuntu X11/Wayland support.
+  - Configurable key combination (defaults to `Alt+Space`, editable in Preferences to `Ctrl+Space`, `Super+Space`, etc.).
+  - Global toggle behavior: When the shortcut is pressed anywhere on the desktop, Sift is shown, unminimized, and focused; pressing it while focused hides the launcher.
+  - Dynamic shortcut re-binding: Changing the hotkey in Preferences immediately rebinds the listener without restarting.
+- [x] **Escape Window Dismiss & Quick Launcher UX**:
+  - Pressing `Escape` closes open modal sheets first; if none are open and the search bar has text, it clears the query; if already empty, it smoothly hides the launcher.
+  - `hide_window` native Tauri command for frontend window dismissal.
+- [x] **In-Flight Query Cancellation & Race Condition Prevention**:
+  - Sequence-tagged search calls (`currentSearchSeqRef`): If user types rapidly, responses from older in-flight requests that finish late are automatically dropped, ensuring current results always match the latest input.
+- [x] **Resource Profile Throttling (Eco Mode vs. Performance Mode)**:
+  - `ResourceMode::Eco`: Throttles heavy background ML/OCR passes with 20ms sleeps between document chunks, keeping idle/background CPU usage low and preserving laptop battery.
+  - `ResourceMode::Performance`: Unthrottled multi-threaded background processing for high-throughput batch indexing.
+  - Profile state persisted in SQLite `settings` table and editable in Preferences.
+- [x] **Phase 6 Integration Test Suite (`crates/sift-core/tests/phase6_system_polish_test.rs`)**:
+  - Verified default settings, shortcut configuration, and persistent switching between Eco and Performance modes.
+  - Verified query edge cases (empty strings, whitespace-only, single-char bounds).
+
+---
+
+### 8. Test Verification Results
 
 | Suite | Command | Result | Notes |
 |---|---|---|---|
 | Rust Formatting | `cargo fmt --all -- --check` | **PASS** | Clean code formatting |
 | Rust Linter (Clippy) | `cargo clippy --workspace -- -D warnings` | **PASS** | Zero clippy warnings |
-| Core Unit Tests | `cargo test -p sift-core` | **PASS** (23/23 passed) | Models, storage, scanner, preview, extract, tantivy, ocr, embeddings |
+| Core Unit Tests | `cargo test -p sift-core` | **PASS** (24/24 passed) | Models, storage, scanner, preview, extract, tantivy, ocr, embeddings |
 | Fixtures Tests | `cargo test -p sift-core --test fixtures_test` | **PASS** (2/2 passed) | Fixture properties & exclusions |
 | Phase 1 E2E Test | `cargo test -p sift-core --test phase1_indexing_search_test` | **PASS** (1/1 passed) | Full index, search, preview, and root cleanup |
 | Phase 2 E2E Test | `cargo test -p sift-core --test phase2_incremental_indexing_test` | **PASS** (1/1 passed) | Create, modify, rename, delete, prune, reconcile |
 | Phase 3 E2E Test | `cargo test -p sift-core --test phase3_fulltext_search_test` | **PASS** (5/5 passed) | Code/doc phrases, PDF page provenance, invalidation, fused ranking |
 | Phase 4 E2E Test | `cargo test -p sift-core --test phase4_ocr_search_test` | **PASS** (5/5 passed) | OCR extraction, bounding boxes, search hit, deletion cleanup, limits |
 | Phase 5 E2E Test | `cargo test -p sift-core --test phase5_semantic_search_test` | **PASS** (5/5 passed) | Paraphrased retrieval, vision search, RRF fusion, invalidation, degradation |
+| Phase 6 E2E Test | `cargo test -p sift-core --test phase6_system_polish_test` | **PASS** (2/2 passed) | Shortcut persistence, resource mode switching, query edge cases |
 | Synthetic Latency Benchmark | `cargo test -p sift-core --test benchmark_test` | **PASS** (1/1 passed) | Avg 0.52ms, p95 1.54ms on 10k files |
 | Frontend Typecheck | `npm run check` | **PASS** | TypeScript compiles cleanly with 0 errors |
 | Frontend Vitest | `npm test` (`vitest run`) | **PASS** (5/5 passed) | Contract & client test suite |
 | Frontend Production Build | `npm run build` | **PASS** | Production bundle built cleanly |
 
----
-
-### 8. Next Phase: Phase 6 — Polish, Validation, and Packaging
-
-**Goal:** Production polish, global shortcut registration, search cancellation, resource modes (Eco / Performance), and desktop packaging.
-
-**Scope:**
-1. **Configurable Global System Shortcut**:
-   - Register global shortcut (e.g. `Alt+Space` or `Ctrl+Space`) to summon/hide the floating launcher anywhere on Ubuntu.
-2. **Search Cancellation & Debouncing**:
-   - Debounce search input and cancel in-flight queries when new keystrokes arrive to prevent queue congestion.
-3. **Resource Modes**:
-   - `Eco` mode vs `Performance` mode settings in the UI.
-4. **Desktop Packaging**:
-   - Debian `.deb` / AppImage bundle creation.

@@ -176,4 +176,10 @@ export const SiftAPI = {
     if (!isTauriEnvironment()) return settings;
     return invoke<AppSettings>("set_settings", { settings });
   },
+
+  hideWindow: async (): Promise<void> => {
+    if (!isTauriEnvironment()) return;
+    return invoke<void>("hide_window");
+  },
 };
+

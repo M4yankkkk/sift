@@ -75,9 +75,10 @@ pub fn deserialize_vector(bytes: &[u8]) -> Vec<f32> {
 pub fn is_image_supported_for_vision(ext: &str) -> bool {
     matches!(
         ext.to_lowercase().as_str(),
-        "png" | "jpg" | "jpeg" | "webp" | "bmp" | "gif" | "svg"
+        "png" | "jpg" | "jpeg" | "webp" | "bmp" | "gif"
     )
 }
+
 
 /// Returns the centralized directory for Sift ML model caches to prevent disk pollution.
 pub fn get_sift_models_cache_dir() -> std::path::PathBuf {
