@@ -2,13 +2,19 @@ import React, { useState, useEffect } from "react";
 import { Cpu, Zap, Shield, Save, X, RefreshCw } from "lucide-react";
 import { SiftAPI } from "../services/tauriClient";
 import { SiftBrandmark } from "../components/SiftLogo";
-import type { AppSettings, ResourceMode } from "../types/contract";
+import type { AppSettings, IndexStatus, ResourceMode } from "../types/contract";
 
 interface SettingsPageProps {
   onClose?: () => void;
+  indexStatus?: IndexStatus | null;
+  onRefreshStatus?: () => void;
 }
 
-export const SettingsPage: React.FC<SettingsPageProps> = ({ onClose }) => {
+export const SettingsPage: React.FC<SettingsPageProps> = ({
+  onClose,
+  indexStatus,
+  onRefreshStatus,
+}) => {
   const [settings, setSettings] = useState<AppSettings>({
     global_shortcut: "Ctrl+Alt+Space",
     resource_mode: "eco",
@@ -20,6 +26,34 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onClose }) => {
   });
   const [isSaved, setIsSaved] = useState(false);
   const [isReindexing, setIsReindexing] = useState(false);
+  const [liveStatus, setLiveStatus] = useState<IndexStatus | null>(indexStatus || null);
+
+  useEffect(() => {
+    if (indexStatus) setLiveStatus(indexStatus);
+  }, [indexStatus]);
+
+  const isBusy = isReindexing || !!liveStatus?.is_scanning || !!liveStatus?.is_indexing;
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    if (isBusy) {
+      interval = setInterval(async () => {
+        try {
+          const s = await SiftAPI.getIndexStatus();
+          setLiveStatus(s);
+          if (!s.is_scanning && !s.is_indexing) {
+            setIsReindexing(false);
+            if (onRefreshStatus) onRefreshStatus();
+          }
+        } catch {
+          // ignore transient poll error
+        }
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isBusy, onRefreshStatus]);
 
   useEffect(() => {
     SiftAPI.getSettings().then(setSettings).catch(console.error);
@@ -195,30 +229,61 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onClose }) => {
             onClick={async () => {
               setIsReindexing(true);
               try {
-                await SiftAPI.reindexAll();
-                setTimeout(() => setIsReindexing(false), 2500);
+                const s = await SiftAPI.reindexAll();
+                setLiveStatus(s);
+                if (onRefreshStatus) onRefreshStatus();
               } catch (e) {
                 console.error("Reindex error:", e);
                 setIsReindexing(false);
               }
             }}
-            disabled={isReindexing}
+            disabled={isBusy}
             style={{
               fontSize: 11.5,
-              padding: "5px 12px",
+              padding: "6px 14px",
               borderRadius: "var(--radius-xs)",
-              background: "var(--bg-surface-elevated)",
-              border: "1px solid var(--border-subtle)",
+              background: isBusy ? "rgba(139, 92, 246, 0.15)" : "var(--bg-surface-elevated)",
+              border: isBusy ? "1px solid var(--accent-violet)" : "1px solid var(--border-subtle)",
               color: "var(--text-primary)",
-              cursor: isReindexing ? "not-allowed" : "pointer",
+              cursor: isBusy ? "not-allowed" : "pointer",
               display: "inline-flex",
               alignItems: "center",
               gap: 6,
             }}
           >
-            <RefreshCw size={12} className={isReindexing ? "spin" : ""} />
-            {isReindexing ? "Re-indexing files with EmbeddingGemma 2..." : "Re-index All Files (Apply New Embeddings)"}
+            <RefreshCw size={12} className={isBusy ? "spin" : ""} />
+            {isBusy ? "Re-indexing files in background..." : "Re-index All Files (Apply New Embeddings)"}
           </button>
+
+          {isBusy && (
+            <div
+              style={{
+                marginTop: 10,
+                padding: "8px 12px",
+                background: "rgba(139, 92, 246, 0.08)",
+                borderRadius: "var(--radius-xs)",
+                border: "1px solid rgba(139, 92, 246, 0.25)",
+                fontSize: 11,
+                display: "flex",
+                flexDirection: "column",
+                gap: 4,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--accent-violet-light)", fontWeight: 500 }}>
+                <span className="indicator-dot active" style={{ width: 6, height: 6 }} />
+                <span>{liveStatus?.current_operation || "Generating EmbeddingGemma 2 vectors..."}</span>
+              </div>
+              <div style={{ color: "var(--text-muted)", fontSize: 10.5 }}>
+                {liveStatus?.files_indexed ?? 0} files discovered • Background ML pass active (~2–5 mins for large libraries). Filename & text search remain instantly usable!
+              </div>
+            </div>
+          )}
+
+          {!isBusy && liveStatus?.last_scan_completed_at && (
+            <div style={{ marginTop: 8, fontSize: 10.5, color: "var(--text-muted)" }}>
+              Index ready • {liveStatus.files_indexed} files indexed
+            </div>
+          )}
         </div>
 
         {/* Offline Privacy Guarantee */}

@@ -290,7 +290,13 @@ export const App: React.FC = () => {
 
       {/* Modal Sheets for Folders and Preferences */}
       {isFoldersOpen && <SetupPage onClose={() => setIsFoldersOpen(false)} />}
-      {isSettingsOpen && <SettingsPage onClose={() => setIsSettingsOpen(false)} />}
+      {isSettingsOpen && (
+        <SettingsPage
+          onClose={() => setIsSettingsOpen(false)}
+          indexStatus={indexStatus}
+          onRefreshStatus={fetchStatus}
+        />
+      )}
     </div>
   );
 };

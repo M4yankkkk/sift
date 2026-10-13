@@ -17,78 +17,97 @@ pub(crate) fn spawn_scan_worker(
     is_scanning: Arc<AtomicBool>,
     current_op: Arc<Mutex<Option<String>>>,
     last_scan: Arc<Mutex<Option<chrono::DateTime<Utc>>>>,
+    needs_rescan: Arc<AtomicBool>,
 ) {
     if is_scanning.swap(true, Ordering::SeqCst) {
-        // Already scanning
+        // A scan is already running; signal it to perform another full pass once done
+        needs_rescan.store(true, Ordering::SeqCst);
         return;
     }
 
     std::thread::spawn(move || {
-        let roots = match db.list_roots() {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::error!("Failed to list roots for scan: {}", e);
-                is_scanning.store(false, Ordering::SeqCst);
-                return;
-            }
-        };
+        loop {
+            needs_rescan.store(false, Ordering::SeqCst);
 
-        let exclusions = db
-            .get_settings()
-            .map(|s| s.default_exclusions)
-            .unwrap_or_default();
+            let roots = match db.list_roots() {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::error!("Failed to list roots for scan: {}", e);
+                    break;
+                }
+            };
 
-        let mut roots = roots;
-        // Prioritize user Documents root for immediate responsiveness
-        roots.sort_by(|a, b| {
-            if a.path.contains("Documents") {
-                std::cmp::Ordering::Less
-            } else if b.path.contains("Documents") {
-                std::cmp::Ordering::Greater
-            } else {
-                a.path.cmp(&b.path)
-            }
-        });
+            let exclusions = db
+                .get_settings()
+                .map(|s| s.default_exclusions)
+                .unwrap_or_default();
 
-        let mut total_indexed = 0;
+            let mut roots = roots;
+            // Prioritize user Documents root for immediate responsiveness
+            roots.sort_by(|a, b| {
+                if a.path.contains("Documents") {
+                    std::cmp::Ordering::Less
+                } else if b.path.contains("Documents") {
+                    std::cmp::Ordering::Greater
+                } else {
+                    a.path.cmp(&b.path)
+                }
+            });
 
-        for root in roots {
-            let root_path = Path::new(&root.path);
-            if !root_path.exists() {
-                continue;
-            }
+            let mut total_indexed = 0;
 
-            {
-                let mut op = current_op.lock().unwrap();
-                *op = Some(format!("Scanning {}", root.path));
-            }
+            for root in roots {
+                let root_path = Path::new(&root.path);
+                if !root_path.exists() {
+                    continue;
+                }
 
-            tracing::info!("Scanning root: {}", root.path);
-            match sift_core::scan_directory(root_path, &exclusions) {
-                Ok(files) => {
-                    let count = files.len();
-                    if let Err(e) = db.upsert_files_batch(&root.id, &files) {
-                        tracing::error!("Failed to upsert files for root {}: {}", root.path, e);
-                    } else {
-                        total_indexed += count;
-                    }
+                {
+                    let mut op = current_op.lock().unwrap();
+                    *op = Some(format!("Scanning {}", root.path));
+                }
 
-                    // Periodic/startup reconciliation: prune deleted files
-                    let active_paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
-                    if let Ok(pruned) = db.reconcile_root(&root.id, &active_paths) {
-                        if pruned > 0 {
-                            tracing::info!(pruned, root = %root.path, "Reconciled deleted files for root");
+                tracing::info!("Scanning root: {}", root.path);
+                match sift_core::scan_directory(root_path, &exclusions) {
+                    Ok(files) => {
+                        let count = files.len();
+                        {
+                            let mut op = current_op.lock().unwrap();
+                            *op = Some(format!(
+                                "Indexing & embedding {} files in {}",
+                                count, root.path
+                            ));
+                        }
+
+                        if let Err(e) = db.upsert_files_batch(&root.id, &files) {
+                            tracing::error!("Failed to upsert files for root {}: {}", root.path, e);
+                        } else {
+                            total_indexed += count;
+                        }
+
+                        // Periodic/startup reconciliation: prune deleted files
+                        let active_paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
+                        if let Ok(pruned) = db.reconcile_root(&root.id, &active_paths) {
+                            if pruned > 0 {
+                                tracing::info!(pruned, root = %root.path, "Reconciled deleted files for root");
+                            }
                         }
                     }
-                }
-                Err(e) => {
-                    tracing::warn!("Error scanning directory {}: {}", root.path, e);
+                    Err(e) => {
+                        tracing::warn!("Error scanning directory {}: {}", root.path, e);
+                    }
                 }
             }
+
+            tracing::info!("Scan completed: indexed {} files", total_indexed);
+            *last_scan.lock().unwrap() = Some(Utc::now());
+
+            if !needs_rescan.load(Ordering::SeqCst) {
+                break;
+            }
+            tracing::info!("Rescan requested while previous scan was running; performing fresh pass");
         }
 
-        tracing::info!("Scan completed: indexed {} files", total_indexed);
-        *last_scan.lock().unwrap() = Some(Utc::now());
         *current_op.lock().unwrap() = None;
         is_scanning.store(false, Ordering::SeqCst);
     });
@@ -118,6 +137,7 @@ pub async fn add_root(path: String, state: State<'_, AppState>) -> Result<RootFo
         state.is_scanning.clone(),
         state.current_operation.clone(),
         state.last_scan_completed_at.clone(),
+        state.needs_rescan.clone(),
     );
 
     Ok(root)
@@ -141,18 +161,21 @@ pub async fn start_scan(state: State<'_, AppState>) -> Result<IndexStatus> {
         state.is_scanning.clone(),
         state.current_operation.clone(),
         state.last_scan_completed_at.clone(),
+        state.needs_rescan.clone(),
     );
     Ok(state.get_status())
 }
 
 #[tauri::command]
 pub async fn reindex_all(state: State<'_, AppState>) -> Result<IndexStatus> {
+    state.needs_rescan.store(true, Ordering::SeqCst);
     state.db.clear_all_index_data()?;
     spawn_scan_worker(
         state.db.clone(),
         state.is_scanning.clone(),
         state.current_operation.clone(),
         state.last_scan_completed_at.clone(),
+        state.needs_rescan.clone(),
     );
     Ok(state.get_status())
 }

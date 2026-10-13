@@ -13,6 +13,7 @@ pub struct AppState {
     pub last_scan_completed_at: Arc<Mutex<Option<DateTime<Utc>>>>,
     pub watcher: Arc<Mutex<Option<FileWatcher>>>,
     pub queue_length: Arc<AtomicUsize>,
+    pub needs_rescan: Arc<AtomicBool>,
 }
 
 impl AppState {
@@ -51,6 +52,7 @@ impl AppState {
             }
         };
 
+        let needs_rescan = Arc::new(AtomicBool::new(false));
         let state = Self {
             db: db_arc.clone(),
             is_scanning: Arc::new(AtomicBool::new(false)),
@@ -58,6 +60,7 @@ impl AppState {
             last_scan_completed_at: Arc::new(Mutex::new(None)),
             watcher,
             queue_length,
+            needs_rescan: needs_rescan.clone(),
         };
 
         // Automatically discover new/modified files and reconcile on app startup
@@ -66,6 +69,7 @@ impl AppState {
             state.is_scanning.clone(),
             state.current_operation.clone(),
             state.last_scan_completed_at.clone(),
+            state.needs_rescan.clone(),
         );
 
         state
