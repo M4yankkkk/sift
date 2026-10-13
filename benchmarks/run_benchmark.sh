@@ -10,6 +10,7 @@ echo "Date: $(date -u)"
 echo "---------------------------------------------"
 
 cargo test -p sift-core --test benchmark_test -- --nocapture
+cargo test -p sift-core --test phase7_ml_benchmark_test -- --nocapture
 
 echo "============================================="
-echo "Benchmark completed successfully."
+echo "All benchmarks completed successfully."

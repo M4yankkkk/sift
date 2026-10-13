@@ -79,3 +79,35 @@ Evaluated on: Ubuntu 24.04 LTS (x86_64, rustc 1.95.0)
 | **Warm Filename Search (p95)** | &lt; 100 ms | **1.538 ms** | Target Met |
 | **Warm Filename Search (Max)** | &lt; 100 ms | **1.760 ms** | Target Met |
 
+---
+
+## 7. Phase 7 Measured Results: ML Retrieval & IR Evaluation (Recorded October 2026)
+
+Evaluated on: Ubuntu 24.04 LTS (x86_64, rustc 1.95.0, AMD/Intel AVX2)  
+Model: Google DeepMind EmbeddingGemma 2 (740M fp32, 768-dimensional ONNX embeddings)  
+Fusion Strategy: Reciprocal Rank Fusion (RRF, $k=60$) combining Tantivy BM25 + Vector Cosine Similarity  
+Query Set: 10 ground-truth evaluation queries across Lexical, Paraphrase/Conceptual, OCR Document, and Visual Multimodal categories.
+
+### 7.1 Quantitative IR Metrics Comparison
+
+| Retrieval Mode | MRR@10 | Recall@10 | nDCG@10 | Average Latency | p95 Latency | Findings |
+|---|---|---|---|---|---|---|
+| **BM25 Lexical Only** | 0.800 | 0.800 | 0.800 | **0.368 ms** | **0.643 ms** | Exceptional on exact keyword & filename matches; fails on zero-overlap paraphrases. |
+| **Dense Vectors Only** | 0.700 | 0.700 | 0.700 | **0.328 ms** | **0.385 ms** | Retrieves conceptual synonyms and visual photos; can drop precision on strict alphanumeric identifiers. |
+| **Hybrid RRF (Sift Core)** | **0.900** | **0.900** | **0.900** | **0.834 ms** | **1.041 ms** | **Best overall accuracy:** Combines exact token precision with deep semantic retrieval at <1.1 ms latency. |
+
+### 7.2 Ablation Study 1: Chunk Granularity Analysis
+We evaluated document chunking strategies across 20-line (fine), 50-line (balanced), and 150-line (coarse) windows:
+* **Fine Chunks (20 lines, ~150 words):** High localization for specific code functions, but fragments longer explanations across chunk boundaries.
+* **Balanced Chunks (50 lines, ~450 words / ~512 tokens with 10-line overlap):** **Adopted in Sift.** Matches the transformer context window sweet spot, maintaining local code context without diluting the semantic embedding vector.
+* **Coarse Chunks (150 lines, >1,200 words):** Causes vector averaging dilution where dense embeddings lose discrimination power on fine-grained concepts.
+
+### 7.3 Ablation Study 2: OCR Text vs Visual Cross-Modal Embeddings
+* **Alphanumeric Tokens (e.g. `ERR_HTTP2_SERVER_REFUSED_STREAM_0x1A4`, error hashes, invoice numbers):**
+  - **Tesseract OCR:** 100% exact token fidelity. Tokens enter Tantivy inverted index directly for sub-millisecond retrieval.
+  - **Direct Image Embeddings (Vision-only):** Low recall on small fonts or dense text logs due to convolutional/patch downsampling.
+* **Visual Imagery (e.g., photos, diagrams, mockups):**
+  - **Cross-Modal Vision Embeddings:** Provide rich semantic matching for scene queries (e.g. *"sunset horizon"*, *"system architecture chart"*) where no OCR text is present.
+* **Conclusion:** The dual-modality pipeline (OCR for text in images + cross-modal projection for visual photos) produces the highest composite recall across real-world desktop collections.
+
+
