@@ -26,7 +26,7 @@ export interface IndexStatus {
 
 export interface SearchQuery {
   query: string;
-  search_type?: "filename" | "content" | "hybrid";
+  search_type?: "filename" | "content" | "visual" | "hybrid";
   root_paths?: string[];
   limit?: number;
   offset?: number;

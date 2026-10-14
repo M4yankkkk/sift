@@ -192,6 +192,13 @@ export const ResultsList: React.FC<ResultsListProps> = ({
 
   return (
     <div className={`results-container ${withPreview ? "with-preview" : ""}`}>
+      {query && results.length > 0 && (
+        <div className="results-header-info">
+          <span className="results-count-badge">
+            {results.length} {results.length === 1 ? "match" : "matches"} found
+          </span>
+        </div>
+      )}
       {results.map((item) => {
         const isSelected = item.id === selectedId;
         const details = getFileDetails(item.extension);

@@ -1,8 +1,8 @@
 import React from "react";
-import { X, PanelRightClose, PanelRightOpen, Layers, FileText, AlignLeft, Loader2 } from "lucide-react";
+import { X, PanelRightClose, PanelRightOpen, Layers, FileText, AlignLeft, Image, Loader2 } from "lucide-react";
 import { SiftFullLogo } from "./SiftLogo";
 
-export type SearchFilter = "all" | "filename" | "content";
+export type SearchFilter = "all" | "filename" | "content" | "visual";
 
 interface SearchBarProps {
   query: string;
@@ -84,6 +84,14 @@ export const SearchBar: React.FC<SearchBarProps> = ({
           >
             <AlignLeft size={12} />
             <span>Content</span>
+          </button>
+          <button
+            className={`filter-chip ${activeFilter === "visual" ? "active" : ""}`}
+            onClick={() => onFilterChange("visual")}
+            title="Search images and photos via visual multimodal embeddings"
+          >
+            <Image size={12} />
+            <span>Visual</span>
           </button>
         </div>
 

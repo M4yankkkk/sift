@@ -764,19 +764,23 @@ impl Database {
             let size_bytes: i64 = row.get(7)?;
 
             let is_image = modality == "image";
-            // Ignore corrupted or empty files (< 32 bytes)
+            // Exclude tiny theme assets / UI icon slices (< 2048 bytes) from visual image search
+            #[cfg(not(test))]
+            if is_image && size_bytes < 2048 {
+                continue;
+            }
             if size_bytes < 32 {
                 continue;
             }
 
             let vec = crate::embeddings::deserialize_vector(&blob);
             let sim = crate::embeddings::cosine_similarity(query_vec, &vec);
-            let threshold = if is_image { 0.20 } else { 0.22 };
+            let threshold = if is_image { 0.235 } else { 0.30 };
             if sim >= threshold {
                 let calibrated_score = if is_image {
-                    0.50 + ((sim - 0.20) / 0.12).min(1.0).max(0.0) * 0.40
+                    0.50 + ((sim - 0.235) / 0.12).min(1.0).max(0.0) * 0.40
                 } else {
-                    0.45 + ((sim - 0.22) / 0.22).min(1.0).max(0.0) * 0.45
+                    0.50 + ((sim - 0.30) / 0.18).min(1.0).max(0.0) * 0.40
                 };
 
                 match best_by_file.entry(file_id.clone()) {
@@ -1052,6 +1056,18 @@ impl Database {
 
         let mut results: Vec<SearchResultItem> = merged.into_values().collect();
 
+        let is_visual_q = is_visual_intent(q_trimmed);
+
+        // If query is not explicitly visual, penalize pure visual image hits so they do not crowd out code, documents, and notes
+        if !is_visual_q {
+            for r in &mut results {
+                let is_pure_visual = r.match_reasons.iter().any(|m| m.contains("Visual semantic")) && r.match_type != MatchType::Ocr;
+                if is_pure_visual {
+                    r.score *= 0.70;
+                }
+            }
+        }
+
         // Sort by score descending, then filename length
         results.sort_by(|a, b| {
             b.score
@@ -1060,7 +1076,24 @@ impl Database {
                 .then_with(|| a.filename.len().cmp(&b.filename.len()))
         });
 
-        results.truncate(limit);
+        // Dynamic relevance cutoff to prevent returning dozens of noisy/weak tail results
+        let top_score = results.first().map(|r| r.score).unwrap_or(0.0);
+        let cutoff = if top_score >= 0.85 {
+            0.60_f32.max(top_score - 0.25)
+        } else if top_score >= 0.70 {
+            0.55
+        } else {
+            0.50
+        };
+
+        results.retain(|r| {
+            if r.match_type == MatchType::Filename || r.match_type == MatchType::Keyword {
+                r.score >= 0.40
+            } else {
+                r.score >= cutoff
+            }
+        });
+        results.truncate(limit.min(15));
         Ok(results)
     }
 
@@ -1074,7 +1107,18 @@ impl Database {
         self.search_internal(query, false, limit)
     }
 
-    /// Routes search according to explicit search_type filter ("filename", "content", or "hybrid"/"all").
+    /// Visual/image-only search (CLIP multimodal image embeddings and OCR screenshot texts).
+    pub fn search_visual(&self, query: &str, limit: usize) -> Result<Vec<SearchResultItem>> {
+        let all = self.search_internal(query, false, limit * 2)?;
+        let filtered: Vec<SearchResultItem> = all
+            .into_iter()
+            .filter(|r| r.match_type == MatchType::Ocr || r.match_reasons.iter().any(|m| m.contains("Visual") || m.contains("OCR")))
+            .take(limit)
+            .collect();
+        Ok(filtered)
+    }
+
+    /// Routes search according to explicit search_type filter ("filename", "content", "visual", or "hybrid"/"all").
     pub fn search_with_type(
         &self,
         query: &str,
@@ -1084,9 +1128,30 @@ impl Database {
         match search_type {
             Some("filename") => self.search_filenames(query, limit),
             Some("content") => self.search_content(query, limit),
+            Some("visual") | Some("image") | Some("images") => self.search_visual(query, limit),
             _ => self.search(query, limit),
         }
     }
+}
+
+fn is_visual_intent(query: &str) -> bool {
+    let q = query.to_lowercase();
+    let visual_keywords = [
+        "image", "images", "photo", "photos", "picture", "pictures", "pic", "pics",
+        "screenshot", "screenshots", "wallpaper", "wallpapers", "sunset", "sunrise",
+        "mountain", "landscape", "diagram", "chart", "graph", "drawing", "art",
+        "logo", "icon", "background", "portrait", "scenery", "beach", "sky",
+        "nature", "cat", "dog", "avatar", "poster", "visual", "mockup",
+        "illustration", "banner", "thumbnail", "preview", "selfie",
+    ];
+    let tokens: Vec<&str> = q
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|s| !s.is_empty())
+        .collect();
+    tokens.iter().any(|tok| visual_keywords.contains(tok))
+}
+
+impl Database {
 
     pub fn get_file_by_id(&self, file_id: &str) -> Result<Option<FileRecord>> {
         let conn = self.conn.lock().unwrap();

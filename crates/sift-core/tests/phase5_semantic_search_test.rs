@@ -90,8 +90,10 @@ fn test_phase5_visual_multimodal_image_search() {
     let image_path = dir.path().join("sunset_beach_photo.png");
     {
         let mut f = File::create(&image_path).expect("create image file");
-        f.write_all(b"FAKE_PNG_HEADER_PHOTO_CONTENT_SUNSET")
-            .expect("write bytes");
+        let mut data = vec![0u8; 4096];
+        let header = b"FAKE_PNG_HEADER_PHOTO_CONTENT_SUNSET";
+        data[..header.len()].copy_from_slice(header);
+        f.write_all(&data).expect("write bytes");
     }
 
     let engine: Arc<dyn EmbeddingEngine> = Arc::new(DeterministicMockEngine::new(768));
