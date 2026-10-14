@@ -3,6 +3,7 @@ pub mod error;
 pub mod extract;
 pub mod models;
 pub mod ocr;
+pub mod ranking;
 pub mod scanner;
 pub mod storage;
 pub mod tantivy_index;

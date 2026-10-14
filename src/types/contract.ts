@@ -46,11 +46,21 @@ export interface SearchResultItem {
   page_number: number | null;
 }
 
+/** Number of results each search mode returns for the same query (filter-chip badges). */
+export interface ModeCounts {
+  all: number;
+  filename: number;
+  content: number;
+  visual: number;
+}
+
 export interface SearchResponse {
   results: SearchResultItem[];
   total_matches: number;
   execution_time_ms: number;
   query: string;
+  /** Absent in filename mode, which stays a pure SQLite lookup. */
+  mode_counts?: ModeCounts | null;
 }
 
 export interface OcrBoundingBox {

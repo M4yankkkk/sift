@@ -1,6 +1,7 @@
 import React from "react";
 import { X, PanelRightClose, PanelRightOpen, Layers, FileText, AlignLeft, Image, Loader2 } from "lucide-react";
 import { SiftFullLogo } from "./SiftLogo";
+import type { ModeCounts } from "../types/contract";
 
 export type SearchFilter = "all" | "filename" | "content" | "visual";
 
@@ -10,6 +11,7 @@ interface SearchBarProps {
   onClear: () => void;
   activeFilter: SearchFilter;
   onFilterChange: (filter: SearchFilter) => void;
+  modeCounts?: Partial<ModeCounts> | null;
   showPreview: boolean;
   onTogglePreview: () => void;
   isSearching?: boolean;
@@ -22,11 +24,18 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   onClear,
   activeFilter,
   onFilterChange,
+  modeCounts,
   showPreview,
   onTogglePreview,
   isSearching = false,
   placeholder = "Search files, content, or meaning...",
 }) => {
+  const countBadge = (filter: SearchFilter) => {
+    const n = modeCounts?.[filter];
+    if (n === undefined) return null;
+    return <span className={`filter-chip-count ${n === 0 ? "zero" : ""}`}>{n}</span>;
+  };
+
   return (
     <div className="search-header" data-tauri-drag-region>
       {/* Brand Badge */}
@@ -64,10 +73,11 @@ export const SearchBar: React.FC<SearchBarProps> = ({
           <button
             className={`filter-chip ${activeFilter === "all" ? "active" : ""}`}
             onClick={() => onFilterChange("all")}
-            title="Search all fields (Hybrid BM25 + Embeddings + Filenames)"
+            title="Best matches across filenames, content, and images (picked automatically per query)"
           >
             <Layers size={12} />
             <span>All</span>
+            {countBadge("all")}
           </button>
           <button
             className={`filter-chip ${activeFilter === "filename" ? "active" : ""}`}
@@ -76,6 +86,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
           >
             <FileText size={12} />
             <span>Filename</span>
+            {countBadge("filename")}
           </button>
           <button
             className={`filter-chip ${activeFilter === "content" ? "active" : ""}`}
@@ -84,6 +95,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
           >
             <AlignLeft size={12} />
             <span>Content</span>
+            {countBadge("content")}
           </button>
           <button
             className={`filter-chip ${activeFilter === "visual" ? "active" : ""}`}
@@ -92,6 +104,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
           >
             <Image size={12} />
             <span>Visual</span>
+            {countBadge("visual")}
           </button>
         </div>
 

@@ -67,12 +67,23 @@ pub struct SearchResultItem {
     pub page_number: Option<i32>,
 }
 
+/// Number of results each search mode returns for the same query, shown on the filter chips.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModeCounts {
+    pub all: usize,
+    pub filename: usize,
+    pub content: usize,
+    pub visual: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResponse {
     pub results: Vec<SearchResultItem>,
     pub total_matches: usize,
     pub execution_time_ms: f64,
     pub query: String,
+    #[serde(default)]
+    pub mode_counts: Option<ModeCounts>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

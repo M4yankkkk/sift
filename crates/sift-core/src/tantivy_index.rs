@@ -8,6 +8,9 @@ use tantivy::schema::*;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, Term};
 
+/// In any-term fallback mode, hits scoring below this fraction of the best hit are dropped.
+const ANY_TERM_RELATIVE_FLOOR: f32 = 0.4;
+
 #[derive(Clone)]
 pub struct TantivySchemaFields {
     pub file_id: Field,
@@ -223,15 +226,39 @@ impl TantivySearchIndex {
     }
 
     /// Searches Tantivy full-text index with BM25 scoring and snippet generation.
+    ///
+    /// Every query term must match by default. If that finds nothing, falls back to matching any
+    /// term, keeping only hits within reach of the best one so a single common word
+    /// ("how", "to") cannot pull in the whole corpus.
     pub fn search(&self, query_str: &str, limit: usize) -> Result<Vec<FullTextHit>> {
+        let all_terms = self.search_with_conjunction(query_str, limit, true)?;
+        if !all_terms.is_empty() {
+            return Ok(all_terms);
+        }
+        let mut any_term = self.search_with_conjunction(query_str, limit, false)?;
+        if let Some(top) = any_term.first().map(|h| h.score) {
+            any_term.retain(|h| h.score >= top * ANY_TERM_RELATIVE_FLOOR);
+        }
+        Ok(any_term)
+    }
+
+    fn search_with_conjunction(
+        &self,
+        query_str: &str,
+        limit: usize,
+        conjunction: bool,
+    ) -> Result<Vec<FullTextHit>> {
         let trimmed = query_str.trim();
         if trimmed.is_empty() {
             return Ok(Vec::new());
         }
 
         let searcher = self.reader.searcher();
-        let query_parser =
+        let mut query_parser =
             QueryParser::for_index(&self.index, vec![self.fields.filename, self.fields.content]);
+        if conjunction {
+            query_parser.set_conjunction_by_default();
+        }
 
         // Parse query; fallback to escaped phrase if user typed special syntax
         let query = match query_parser.parse_query(trimmed) {

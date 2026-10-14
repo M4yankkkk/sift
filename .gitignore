@@ -36,3 +36,6 @@ data/
 **/.fastembed_cache/
 models/
 **/models/
+
+# Personal search-quality eval cases (contain local filenames)
+benchmarks/live_eval_cases.json

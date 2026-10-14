@@ -11,6 +11,7 @@ import type {
   SearchResultItem,
   PreviewResponse,
   IndexStatus,
+  ModeCounts,
 } from "./types/contract";
 
 export const App: React.FC = () => {
@@ -18,6 +19,7 @@ export const App: React.FC = () => {
   const [activeFilter, setActiveFilter] = useState<SearchFilter>("all");
   const [showPreview, setShowPreview] = useState(true);
   const [results, setResults] = useState<SearchResultItem[]>([]);
+  const [modeCounts, setModeCounts] = useState<Partial<ModeCounts> | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -78,6 +80,7 @@ export const App: React.FC = () => {
       const seq = ++currentSearchSeqRef.current;
       if (!q.trim()) {
         setResults([]);
+        setModeCounts(null);
         setSelectedId(null);
         setPreview(null);
         return;
@@ -95,6 +98,7 @@ export const App: React.FC = () => {
           return;
         }
         setResults(resp.results);
+        setModeCounts(resp.mode_counts ?? { filename: resp.results.length });
         if (resp.results.length > 0) {
           setSelectedId(resp.results[0].id);
         } else {
@@ -294,6 +298,7 @@ export const App: React.FC = () => {
         onClear={() => setQuery("")}
         activeFilter={activeFilter}
         onFilterChange={setActiveFilter}
+        modeCounts={modeCounts}
         showPreview={showPreview}
         onTogglePreview={() => setShowPreview((prev) => !prev)}
         isSearching={isSearching}

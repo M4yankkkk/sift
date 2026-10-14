@@ -1,5 +1,6 @@
 use crate::error::{Result, SiftError};
-use crate::models::{AppSettings, FileRecord, MatchType, RootFolder, SearchResultItem};
+use crate::models::{AppSettings, FileRecord, MatchType, ModeCounts, RootFolder, SearchResultItem};
+use crate::ranking::{self, QueryIntent, SimStats};
 use crate::scanner::FileMeta;
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -16,10 +17,16 @@ pub struct VectorSearchResult {
     pub file_id: String,
     pub path: String,
     pub filename: String,
+    /// Calibrated confidence in [0.5, 0.95].
     pub score: f32,
+    /// Raw cosine similarity.
+    pub similarity: f32,
+    /// Standard deviations above this query's mean similarity (0 when the corpus is too small).
+    pub z_score: f32,
     pub modality: String,
     pub snippet: String,
     pub page_number: Option<i32>,
+    pub size_bytes: i64,
 }
 /// Safely truncates a string to at most `max_bytes` without slicing inside a multi-byte UTF-8 character.
 pub fn safe_truncate_str(s: &str, max_bytes: usize) -> String {
@@ -715,418 +722,484 @@ impl Database {
         self.search_vectors_by_modality(query_vec, limit, None)
     }
 
+    /// Semantic vector search gated by per-query relevance (see [`crate::ranking`]).
+    /// `is_image_only`: `Some(true)` = CLIP image vectors, `Some(false)` = text/OCR chunks, `None` = both.
     pub fn search_vectors_by_modality(
         &self,
         query_vec: &[f32],
         limit: usize,
         is_image_only: Option<bool>,
     ) -> Result<Vec<VectorSearchResult>> {
-        let conn = self.conn.lock().unwrap();
-        let query_sql = match is_image_only {
-            Some(true) => {
-                r#"
-                SELECT e.file_id, f.path, f.filename, e.modality, e.snippet, e.page_number, e.embedding, f.size_bytes
-                FROM chunk_embeddings e
-                JOIN files f ON e.file_id = f.id
-                WHERE f.is_deleted = 0 AND e.modality = 'image'
-                "#
-            }
-            Some(false) => {
-                r#"
-                SELECT e.file_id, f.path, f.filename, e.modality, e.snippet, e.page_number, e.embedding, f.size_bytes
-                FROM chunk_embeddings e
-                JOIN files f ON e.file_id = f.id
-                WHERE f.is_deleted = 0 AND e.modality != 'image'
-                "#
-            }
-            None => {
-                r#"
-                SELECT e.file_id, f.path, f.filename, e.modality, e.snippet, e.page_number, e.embedding, f.size_bytes
-                FROM chunk_embeddings e
-                JOIN files f ON e.file_id = f.id
-                WHERE f.is_deleted = 0
-                "#
-            }
-        };
-
-        let mut stmt = conn.prepare(query_sql)?;
-        let mut best_by_file: std::collections::HashMap<String, VectorSearchResult> =
-            std::collections::HashMap::new();
-        let mut rows = stmt.query([])?;
-        while let Some(row) = rows.next()? {
-            let file_id: String = row.get(0)?;
-            let path: String = row.get(1)?;
-            let filename: String = row.get(2)?;
-            let modality: String = row.get(3)?;
-            let snippet: String = row.get(4)?;
-            let page_number: Option<i32> = row.get(5)?;
-            let blob: Vec<u8> = row.get(6)?;
-            let size_bytes: i64 = row.get(7)?;
-
-            let is_image = modality == "image";
-            // Exclude tiny theme assets / UI icon slices (< 2048 bytes) from visual image search
-            #[cfg(not(test))]
-            if is_image && size_bytes < 2048 {
-                continue;
-            }
-            if size_bytes < 32 {
-                continue;
-            }
-
-            // Exclude short garbage OCR snippets (< 3 bytes) from vector semantic matching
-            if modality == "ocr" && snippet.trim().len() < 3 {
-                continue;
-            }
-
-            let vec = crate::embeddings::deserialize_vector(&blob);
-            let sim = crate::embeddings::cosine_similarity(query_vec, &vec);
-            let threshold = if is_image { 0.22 } else { 0.30 };
-            if sim >= threshold {
-                let calibrated_score = if is_image {
-                    0.55 + ((sim - 0.22) / 0.06).min(1.0).max(0.0) * 0.40
-                } else {
-                    0.50 + ((sim - 0.30) / 0.18).min(1.0).max(0.0) * 0.40
-                };
-
-                match best_by_file.entry(file_id.clone()) {
-                    std::collections::hash_map::Entry::Occupied(mut occ) => {
-                        if calibrated_score > occ.get().score {
-                            occ.insert(VectorSearchResult {
-                                file_id,
-                                path,
-                                filename,
-                                score: calibrated_score,
-                                modality,
-                                snippet,
-                                page_number,
-                            });
-                        }
-                    }
-                    std::collections::hash_map::Entry::Vacant(vac) => {
-                        vac.insert(VectorSearchResult {
-                            file_id,
-                            path,
-                            filename,
-                            score: calibrated_score,
-                            modality,
-                            snippet,
-                            page_number,
-                        });
-                    }
-                }
-            }
-        }
-
-        let mut candidates: Vec<VectorSearchResult> = best_by_file.into_values().collect();
-        candidates.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        candidates.truncate(limit);
-        Ok(candidates)
+        Ok(self
+            .vector_search(query_vec, limit, is_image_only, ranking::IMAGE_Z_BLENDED)?
+            .hits)
     }
 
-    /// Internal search implementation with configurable filename inclusion.
-    fn search_internal(
+    /// Scores every stored vector of the requested modality against `query_vec`, keeps each file's
+    /// best chunk, and admits files that stand out from this query's own similarity distribution.
+    fn vector_search(
         &self,
-        query: &str,
-        include_filenames: bool,
+        query_vec: &[f32],
+        limit: usize,
+        is_image_only: Option<bool>,
+        image_min_z: f32,
+    ) -> Result<VectorOutcome> {
+        let modality_clause = match is_image_only {
+            Some(true) => "AND e.modality = 'image'",
+            Some(false) => "AND e.modality != 'image'",
+            None => "",
+        };
+        let sql = format!(
+            r#"
+            SELECT e.id, e.file_id, e.modality = 'image', f.size_bytes, e.embedding,
+                   e.modality = 'ocr' AND length(trim(e.snippet)) < 3
+            FROM chunk_embeddings e
+            JOIN files f ON e.file_id = f.id
+            WHERE f.is_deleted = 0 {}
+            "#,
+            modality_clause
+        );
+
+        // Index 0 = text/OCR chunks, 1 = images: the two live in different embedding spaces.
+        let mut sums = [(0usize, 0f64, 0f64); 2];
+        // file_id -> (similarity, embedding row id, is_image)
+        let mut best_by_file: HashMap<String, (f32, String, bool)> = HashMap::new();
+        {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(&sql)?;
+            let mut rows = stmt.query([])?;
+            while let Some(row) = rows.next()? {
+                let is_image: bool = row.get(2)?;
+                let size_bytes: i64 = row.get(3)?;
+                // Exclude tiny theme assets / UI icon slices (< 2048 bytes) from visual image search
+                #[cfg(not(test))]
+                if is_image && size_bytes < 2048 {
+                    continue;
+                }
+                if size_bytes < 32 {
+                    continue;
+                }
+                // Exclude short garbage OCR snippets (< 3 bytes) from vector semantic matching
+                let garbage_ocr: bool = row.get(5)?;
+                if garbage_ocr {
+                    continue;
+                }
+
+                let vec = match row.get_ref(4)?.as_blob() {
+                    Ok(blob) => crate::embeddings::deserialize_vector(blob),
+                    Err(_) => continue,
+                };
+                let sim = crate::embeddings::cosine_similarity(query_vec, &vec);
+
+                let group = &mut sums[is_image as usize];
+                group.0 += 1;
+                group.1 += sim as f64;
+                group.2 += (sim as f64) * (sim as f64);
+
+                let file_id: String = row.get(1)?;
+                match best_by_file.get(&file_id) {
+                    Some((best, _, _)) if *best >= sim => {}
+                    _ => {
+                        let emb_id: String = row.get(0)?;
+                        best_by_file.insert(file_id, (sim, emb_id, is_image));
+                    }
+                }
+            }
+        }
+
+        let stats = [
+            SimStats::from_sums(sums[0].0, sums[0].1, sums[0].2),
+            SimStats::from_sums(sums[1].0, sums[1].1, sums[1].2),
+        ];
+
+        let mut admitted: Vec<(String, String, f32, f32, f32)> = Vec::new(); // (file_id, emb_id, sim, z, conf)
+        let mut top_z: Option<f32> = None;
+        for (file_id, (sim, emb_id, is_image)) in best_by_file {
+            let st = &stats[is_image as usize];
+            let (passes, z, conf) = if st.is_reliable() {
+                let z = st.z(sim);
+                let (min_z, floor, span) = if is_image {
+                    (image_min_z, ranking::IMAGE_SIM_FLOOR, 2.0)
+                } else {
+                    (ranking::TEXT_Z, ranking::TEXT_SIM_FLOOR, 3.0)
+                };
+                let conf = 0.55 + 0.40 * ranking::clamp01((z - min_z) / span);
+                (z >= min_z && sim >= floor, z, conf)
+            } else if is_image {
+                let t = ranking::IMAGE_SIM_SMALL_CORPUS;
+                (sim >= t, 0.0, 0.55 + ranking::clamp01((sim - t) / 0.06) * 0.40)
+            } else {
+                let t = ranking::TEXT_SIM_SMALL_CORPUS;
+                (sim >= t, 0.0, 0.50 + ranking::clamp01((sim - t) / 0.18) * 0.40)
+            };
+            if passes {
+                if st.is_reliable() {
+                    top_z = Some(top_z.map_or(z, |t: f32| t.max(z)));
+                }
+                admitted.push((file_id, emb_id, sim, z, conf));
+            }
+        }
+        admitted.sort_by(|a, b| b.4.partial_cmp(&a.4).unwrap_or(std::cmp::Ordering::Equal));
+        admitted.truncate(limit);
+
+        let conn = self.conn.lock().unwrap();
+        let mut detail = conn.prepare(
+            r#"
+            SELECT f.path, f.filename, e.modality, e.snippet, e.page_number, f.size_bytes
+            FROM chunk_embeddings e JOIN files f ON e.file_id = f.id
+            WHERE e.id = ?1
+            "#,
+        )?;
+        let mut hits = Vec::with_capacity(admitted.len());
+        for (file_id, emb_id, similarity, z_score, score) in admitted {
+            let row = detail
+                .query_row(params![emb_id], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, Option<i32>>(4)?,
+                        r.get::<_, i64>(5)?,
+                    ))
+                })
+                .optional()?;
+            if let Some((path, filename, modality, snippet, page_number, size_bytes)) = row {
+                hits.push(VectorSearchResult {
+                    file_id,
+                    path,
+                    filename,
+                    score,
+                    similarity,
+                    z_score,
+                    modality,
+                    snippet,
+                    page_number,
+                    size_bytes,
+                });
+            }
+        }
+        Ok(VectorOutcome { hits, top_z })
+    }
+
+    /// Runs every retriever once for `intent`. Modes then fuse different subsets of the output.
+    fn retrieve(&self, intent: &QueryIntent, limit: usize) -> Result<Retrieved> {
+        let q = intent.text.as_str();
+        let filename = self.search_filenames(q, limit.max(MAX_FILENAME_HITS))?;
+
+        let keyword = match self.text_index {
+            Some(ref text_index) => {
+                group_keyword_hits(text_index.search(q, KEYWORD_CHUNK_FETCH).unwrap_or_default())
+            }
+            None => Vec::new(),
+        };
+
+        let (text_semantic, images) = match self.embedding_engine {
+            Some(ref engine) => {
+                let text_semantic = match engine.embed_query(q) {
+                    Ok(v) => self.vector_search(&v, MAX_SEMANTIC_HITS, Some(false), 0.0)?,
+                    Err(_) => VectorOutcome::default(),
+                };
+                let images = if intent.allows_images() {
+                    match engine.embed_vision_query(q) {
+                        Ok(v) => self.vector_search(
+                            &v,
+                            MAX_VISUAL_IMAGE_HITS,
+                            Some(true),
+                            ranking::IMAGE_Z_VISUAL,
+                        )?,
+                        Err(_) => VectorOutcome::default(),
+                    }
+                } else {
+                    VectorOutcome::default()
+                };
+                (text_semantic, images)
+            }
+            None => (VectorOutcome::default(), VectorOutcome::default()),
+        };
+
+        Ok(Retrieved {
+            filename,
+            keyword,
+            text_semantic,
+            images,
+        })
+    }
+
+    /// Fuses retriever output for one mode with weighted reciprocal rank fusion, then applies the
+    /// type filter, noise down-ranking, and duplicate collapsing.
+    fn fuse(
+        &self,
+        intent: &QueryIntent,
+        mode: SearchMode,
+        retrieved: &Retrieved,
+        records: &mut HashMap<String, Option<FileRecord>>,
         limit: usize,
     ) -> Result<Vec<SearchResultItem>> {
-        let q_trimmed = query.trim();
-        if q_trimmed.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        // 1. Filename matches (optional based on search_type)
-        let filename_matches = if include_filenames {
-            self.search_filenames(q_trimmed, limit)?
-        } else {
-            Vec::new()
+        let is_image_name = |name: &str| {
+            Path::new(name)
+                .extension()
+                .and_then(|e| e.to_str())
+                .map_or(false, crate::embeddings::is_image_supported_for_vision)
         };
+        let visual = mode == SearchMode::Visual;
+        let q_lower = intent.text.to_lowercase();
 
-        // 2. Full-text hits from Tantivy
-        let text_hits = if let Some(ref text_index) = self.text_index {
-            text_index.search(q_trimmed, limit).unwrap_or_default()
-        } else {
-            Vec::new()
-        };
+        let mut lists: Vec<(f32, Vec<String>)> = Vec::new();
 
-        // 3. Semantic vector hits
-        let vector_hits = if let Some(ref engine) = self.embedding_engine {
-            let mut hits = Vec::new();
-            // 3a. Search conceptual document chunks with Google EmbeddingGemma 2 query instruction prefix
-            if let Ok(q_vec) = engine.embed_query(q_trimmed) {
-                if let Ok(text_hits) = self.search_vectors_by_modality(&q_vec, limit, Some(false)) {
-                    hits.extend(text_hits);
-                }
-            }
-            // Fallback: If no hits with prefixed query (e.g. legacy indexed chunks), check raw query vector
-            if hits.is_empty() {
-                if let Ok(raw_q_vec) = engine.embed_text(q_trimmed) {
-                    if let Ok(fallback_hits) = self.search_vectors_by_modality(&raw_q_vec, limit, Some(false)) {
-                        hits.extend(fallback_hits);
-                    }
-                }
-            }
-            let is_visual_q = is_visual_intent(q_trimmed);
-
-            // If visual query, dampen non-visual text hits so they don't crowd out visual images
-            if is_visual_q {
-                for h in &mut hits {
-                    h.score *= 0.60;
-                }
-            }
-
-            // 3b. Search visual image chunks with cross-modal vision query vector
-            if let Ok(vision_q_vec) = engine.embed_vision_query(q_trimmed) {
-                if let Ok(mut img_hits) = self.search_vectors_by_modality(&vision_q_vec, limit, Some(true)) {
-                    if is_visual_q {
-                        for h in &mut img_hits {
-                            h.score = (h.score * 1.25).min(0.99);
-                        }
-                    } else {
-                        for h in &mut img_hits {
-                            h.score *= 0.60;
-                        }
-                    }
-                    hits.extend(img_hits);
-                }
-            }
-            hits.sort_by(|a, b| {
-                b.score
-                    .partial_cmp(&a.score)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-            hits.truncate(limit);
-            hits
-        } else {
-            Vec::new()
-        };
-
-        if text_hits.is_empty() && vector_hits.is_empty() {
-            return Ok(filename_matches);
-        }
-
-        // 4. Deduplicate and merge
-        let mut merged: HashMap<String, SearchResultItem> = HashMap::new();
-
-        // Add filename matches
-        for item in filename_matches {
-            merged.insert(item.id.clone(), item);
-        }
-
-        // Merge full-text hits
-        for hit in text_hits {
-            let is_ocr = hit.modality == "ocr";
-            if let Some(existing) = merged.get_mut(&hit.file_id) {
-                // Both filename and full-text content matched
-                existing.score += 0.25;
-                if is_ocr {
-                    existing.match_type = MatchType::Ocr;
-                    existing
-                        .match_reasons
-                        .push("Screenshot OCR match".to_string());
-                } else {
-                    let provenance = if let Some(p) = hit.page_number {
-                        format!("Content matched on Page {}", p)
-                    } else if let Some(l) = hit.line_number {
-                        format!("Content matched at line {}", l)
-                    } else {
-                        "Content matched query".to_string()
-                    };
-                    existing.match_reasons.push(provenance);
-                }
-                if existing.snippet.is_none() {
-                    existing.snippet = Some(hit.snippet);
-                }
-                if existing.page_number.is_none() {
-                    existing.page_number = hit.page_number;
-                }
-            } else {
-                // Content matched, but filename didn't
-                if let Ok(Some(file_rec)) = self.get_file_by_id(&hit.file_id) {
-                    if file_rec.is_deleted {
-                        continue;
-                    }
-                    let match_type = if is_ocr {
-                        MatchType::Ocr
-                    } else {
-                        MatchType::Keyword
-                    };
-                    let provenance = if is_ocr {
-                        "Screenshot OCR match".to_string()
-                    } else if let Some(p) = hit.page_number {
-                        format!("Page {}", p)
-                    } else if let Some(l) = hit.line_number {
-                        format!("Line {}", l)
-                    } else {
-                        "Document body".to_string()
-                    };
-
-                    merged.insert(
-                        hit.file_id.clone(),
-                        SearchResultItem {
-                            id: hit.file_id,
-                            path: hit.path,
-                            filename: hit.filename,
-                            extension: file_rec.extension,
-                            size_bytes: file_rec.size_bytes,
-                            modified_at: file_rec.modified_at,
-                            score: 0.65 + (hit.score.min(10.0) / 30.0),
-                            match_type,
-                            match_reasons: vec![format!("Full-text match ({})", provenance)],
-                            snippet: Some(hit.snippet),
-                            page_number: hit.page_number,
-                        },
-                    );
-                }
+        // 1. Filenames: whole-word matches are strong evidence, substrings inside words are weak
+        //    (and meaningless for one- or two-letter queries).
+        let short_query = q_lower.chars().count() < 3;
+        if mode != SearchMode::Content {
+            let (strong, weak): (Vec<&SearchResultItem>, Vec<&SearchResultItem>) = retrieved
+                .filename
+                .iter()
+                .filter(|f| !visual || is_image_name(&f.filename))
+                .take(MAX_FILENAME_HITS)
+                .partition(|f| is_word_boundary_match(&f.filename.to_lowercase(), &q_lower));
+            lists.push((1.2, strong.iter().map(|f| f.id.clone()).collect()));
+            if !short_query {
+                lists.push((0.5, weak.iter().map(|f| f.id.clone()).collect()));
             }
         }
 
-        // Merge semantic vector hits
-        for hit in vector_hits {
-            let is_visual = hit.modality == "image";
-            if let Some(existing) = merged.get_mut(&hit.file_id) {
-                // Both previous matches (filename/full-text) and semantic matched
-                existing.score = (existing.score + hit.score * 0.35).min(1.0);
-                let reason = if is_visual {
-                    format!(
-                        "Visual semantic match ({:.0}% relevance)",
-                        hit.score * 100.0
-                    )
-                } else {
-                    format!(
-                        "Semantic concept match ({:.0}% relevance)",
-                        hit.score * 100.0
-                    )
-                };
-                if !existing
-                    .match_reasons
+        // 2. Keyword / OCR full-text hits.
+        let keyword_cap = if mode == SearchMode::Content { 20 } else { 12 };
+        lists.push((
+            1.0,
+            retrieved
+                .keyword
+                .iter()
+                .filter(|k| !visual || is_image_name(&k.filename))
+                .take(keyword_cap)
+                .map(|k| k.file_id.clone())
+                .collect(),
+        ));
+
+        // 3. Text-concept embeddings, weighted by how clearly the best chunk stood out.
+        let text_weight = ranking::strength_weight(
+            retrieved.text_semantic.top_z,
+            ranking::TEXT_Z,
+            2.5,
+            0.5,
+            0.95,
+        );
+        lists.push((
+            if visual { 0.7 } else { text_weight },
+            retrieved
+                .text_semantic
+                .hits
+                .iter()
+                .filter(|h| !visual || h.modality == "ocr")
+                .take(if mode == SearchMode::Content { 15 } else { 10 })
+                .map(|h| h.file_id.clone())
+                .collect(),
+        ));
+
+        // 4. CLIP images. Visual mode shows everything past the visual gate; the blended list only
+        //    admits images that clearly stand out, weighted by that margin and the query's shape.
+        if mode != SearchMode::Content {
+            let (weight, ids): (f32, Vec<String>) = if visual {
+                // Every clear match, plus a short tail of borderline ones.
+                let mut weak = 0;
+                let ids = retrieved
+                    .images
+                    .hits
                     .iter()
-                    .any(|r| r.starts_with("Semantic") || r.starts_with("Visual"))
-                {
-                    existing.match_reasons.push(reason);
-                }
-                if existing.snippet.is_none() {
-                    existing.snippet = Some(hit.snippet);
-                }
-                if existing.page_number.is_none() {
-                    existing.page_number = hit.page_number;
-                }
+                    .filter(|h| {
+                        let strong = h.z_score >= ranking::IMAGE_Z_BLENDED
+                            || retrieved.images.top_z.is_none();
+                        weak += (!strong) as usize;
+                        strong || weak <= MAX_VISUAL_WEAK_IMAGE_HITS
+                    })
+                    .map(|h| h.file_id.clone())
+                    .collect();
+                (1.0, ids)
             } else {
-                // Only semantic matched
-                if let Ok(Some(file_rec)) = self.get_file_by_id(&hit.file_id) {
-                    if file_rec.is_deleted {
-                        continue;
-                    }
-                    let is_ocr = hit.modality == "ocr";
-                    let match_type = if is_ocr {
-                        MatchType::Ocr
-                    } else {
-                        MatchType::Semantic
-                    };
+                let blended: Vec<String> = retrieved
+                    .images
+                    .hits
+                    .iter()
+                    .filter(|h| h.z_score >= ranking::IMAGE_Z_BLENDED || retrieved.images.top_z.is_none())
+                    .take(MAX_BLENDED_IMAGE_HITS)
+                    .map(|h| h.file_id.clone())
+                    .collect();
+                let base = ranking::strength_weight(
+                    retrieved.images.top_z,
+                    ranking::IMAGE_Z_BLENDED,
+                    1.0,
+                    0.55,
+                    1.2,
+                );
+                (base * intent.image_shape_factor(), blended)
+            };
+            lists.push((weight, ids));
+        }
 
-                    let (reason, snippet, score) = if is_visual {
-                        (
-                            format!(
-                                "Visual semantic match ({:.0}% relevance)",
-                                hit.score * 100.0
-                            ),
-                            Some(format!("Visual contents match \"{}\"", q_trimmed)),
-                            hit.score,
-                        )
-                    } else if is_ocr {
-                        (
-                            format!(
-                                "OCR text match ({:.0}% relevance)",
-                                hit.score * 100.0
-                            ),
-                            Some(hit.snippet),
-                            hit.score,
-                        )
-                    } else {
-                        (
-                            format!(
-                                "Semantic concept match ({:.0}% relevance)",
-                                hit.score * 100.0
-                            ),
-                            Some(hit.snippet),
-                            hit.score,
-                        )
-                    };
+        let fused = ranking::weighted_rrf(&lists);
 
-                    merged.insert(
-                        hit.file_id.clone(),
-                        SearchResultItem {
-                            id: hit.file_id,
-                            path: hit.path,
-                            filename: hit.filename,
-                            extension: file_rec.extension,
-                            size_bytes: file_rec.size_bytes,
-                            modified_at: file_rec.modified_at,
-                            score,
-                            match_type,
-                            match_reasons: vec![reason],
-                            snippet,
-                            page_number: hit.page_number,
-                        },
-                    );
-                }
+        // Evidence lookups for building result items.
+        let filename_by_id: HashMap<&str, &SearchResultItem> = retrieved
+            .filename
+            .iter()
+            .map(|f| (f.id.as_str(), f))
+            .collect();
+        let keyword_by_id: HashMap<&str, &KeywordHit> = retrieved
+            .keyword
+            .iter()
+            .map(|k| (k.file_id.as_str(), k))
+            .collect();
+        let semantic_by_id: HashMap<&str, &VectorSearchResult> = retrieved
+            .text_semantic
+            .hits
+            .iter()
+            .map(|h| (h.file_id.as_str(), h))
+            .collect();
+        let image_by_id: HashMap<&str, &VectorSearchResult> = retrieved
+            .images
+            .hits
+            .iter()
+            .map(|h| (h.file_id.as_str(), h))
+            .collect();
+
+        let mut scored: Vec<(f32, SearchResultItem, String)> = Vec::new();
+        for (id, fused_score) in fused {
+            if !records.contains_key(&id) {
+                let rec = self.get_file_by_id(&id)?;
+                records.insert(id.clone(), rec);
+            }
+            let rec = match records.get(&id).and_then(|r| r.as_ref()) {
+                Some(r) if !r.is_deleted => r,
+                _ => continue,
+            };
+            if !intent.allows(&rec.extension) {
+                continue;
+            }
+            if visual && !crate::embeddings::is_image_supported_for_vision(&rec.extension) {
+                continue;
+            }
+
+            let in_filename = filename_by_id.get(id.as_str()).copied();
+            let in_keyword = keyword_by_id.get(id.as_str()).copied();
+            let in_semantic = semantic_by_id
+                .get(id.as_str())
+                .copied()
+                .filter(|h| !visual || h.modality == "ocr");
+            let in_image = image_by_id.get(id.as_str()).copied().filter(|h| {
+                visual || h.z_score >= ranking::IMAGE_Z_BLENDED || retrieved.images.top_z.is_none()
+            });
+            if mode == SearchMode::Content && in_keyword.is_none() && in_semantic.is_none() {
+                continue;
+            }
+
+            let mut multiplier = ranking::noise_factor(&rec.path, &rec.extension, rec.size_bytes);
+            if intent
+                .preferred_extensions
+                .iter()
+                .any(|e| e.eq_ignore_ascii_case(&rec.extension))
+            {
+                multiplier *= 1.3;
+            }
+
+            let item = build_result_item(
+                rec,
+                &intent.text,
+                in_filename,
+                in_keyword,
+                in_semantic,
+                in_image,
+            );
+            let dup_key = duplicate_key(rec, in_keyword, in_semantic, in_image);
+            scored.push((fused_score * multiplier, item, dup_key));
+        }
+
+        scored.sort_by(|a, b| {
+            b.0.partial_cmp(&a.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.1.filename.len().cmp(&b.1.filename.len()))
+        });
+
+        // Collapse identical copies (same type, size, and matched evidence) into the best-ranked one.
+        let mut results: Vec<SearchResultItem> = Vec::new();
+        let mut kept_by_key: HashMap<String, (usize, usize)> = HashMap::new(); // key -> (index, copies)
+        let top = scored.first().map(|s| s.0).unwrap_or(1.0).max(1e-6);
+        for (score, mut item, key) in scored {
+            if let Some(entry) = kept_by_key.get_mut(&key) {
+                entry.1 += 1;
+                continue;
+            }
+            item.score = (score / top).min(1.0);
+            kept_by_key.insert(key, (results.len(), 0));
+            results.push(item);
+        }
+        for (idx, copies) in kept_by_key.into_values() {
+            if copies > 0 {
+                let label = if copies == 1 { "copy" } else { "copies" };
+                results[idx]
+                    .match_reasons
+                    .push(format!("+{} identical {} elsewhere", copies, label));
             }
         }
 
-        let mut results: Vec<SearchResultItem> = merged.into_values().collect();
-
-        // Sort by score descending, then filename length
-        results.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.filename.len().cmp(&b.filename.len()))
-        });
-
-        // Dynamic relevance cutoff to prevent returning dozens of noisy/weak tail results
-        let top_score = results.first().map(|r| r.score).unwrap_or(0.0);
-        let cutoff = if top_score >= 0.85 {
-            0.60_f32.max(top_score - 0.25)
-        } else if top_score >= 0.70 {
-            0.55
-        } else {
-            0.50
+        let cap = match mode {
+            SearchMode::Visual => MAX_VISUAL_IMAGE_HITS,
+            _ => MAX_BLENDED_RESULTS,
         };
-
-        results.retain(|r| {
-            if r.match_type == MatchType::Filename || r.match_type == MatchType::Keyword {
-                r.score >= 0.40
-            } else {
-                r.score >= cutoff
-            }
-        });
-        results.truncate(limit.min(15));
+        results.truncate(limit.min(cap));
         Ok(results)
+    }
+
+    fn search_mode(
+        &self,
+        query: &str,
+        mode: SearchMode,
+        limit: usize,
+    ) -> Result<(Vec<SearchResultItem>, Option<ModeCounts>)> {
+        let intent = QueryIntent::parse(query);
+        if intent.text.trim().is_empty() {
+            return Ok((Vec::new(), None));
+        }
+        let retrieved = self.retrieve(&intent, limit)?;
+        let mut records: HashMap<String, Option<FileRecord>> = HashMap::new();
+        let results = self.fuse(&intent, mode, &retrieved, &mut records, limit)?;
+
+        // Chip counts: what each other mode would show for the same query (no extra retrieval).
+        let mut counts = ModeCounts {
+            filename: retrieved
+                .filename
+                .iter()
+                .filter(|f| intent.allows(&f.extension))
+                .count(),
+            ..ModeCounts::default()
+        };
+        for other in [SearchMode::All, SearchMode::Content, SearchMode::Visual] {
+            let n = if other == mode {
+                results.len()
+            } else {
+                self.fuse(&intent, other, &retrieved, &mut records, limit)?.len()
+            };
+            match other {
+                SearchMode::All => counts.all = n,
+                SearchMode::Content => counts.content = n,
+                SearchMode::Visual => counts.visual = n,
+            }
+        }
+        Ok((results, Some(counts)))
     }
 
     /// Unified search coordinating fast SQLite filename lookup, Tantivy full-text index, and semantic vector similarity.
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchResultItem>> {
-        self.search_internal(query, true, limit)
+        Ok(self.search_mode(query, SearchMode::All, limit)?.0)
     }
 
-    /// Content-only search (Tantivy full-text + vector embeddings), excluding pure filename matches.
+    /// Content-only search (Tantivy full-text + text embeddings), excluding pure filename and visual matches.
     pub fn search_content(&self, query: &str, limit: usize) -> Result<Vec<SearchResultItem>> {
-        self.search_internal(query, false, limit)
+        Ok(self.search_mode(query, SearchMode::Content, limit)?.0)
     }
 
     /// Visual/image-only search (CLIP multimodal image embeddings and OCR screenshot texts).
     pub fn search_visual(&self, query: &str, limit: usize) -> Result<Vec<SearchResultItem>> {
-        let all = self.search_internal(query, false, limit * 2)?;
-        let filtered: Vec<SearchResultItem> = all
-            .into_iter()
-            .filter(|r| r.match_type == MatchType::Ocr || r.match_reasons.iter().any(|m| m.contains("Visual") || m.contains("OCR")))
-            .take(limit)
-            .collect();
-        Ok(filtered)
+        Ok(self.search_mode(query, SearchMode::Visual, limit)?.0)
     }
 
     /// Routes search according to explicit search_type filter ("filename", "content", "visual", or "hybrid"/"all").
@@ -1136,30 +1209,183 @@ impl Database {
         search_type: Option<&str>,
         limit: usize,
     ) -> Result<Vec<SearchResultItem>> {
+        Ok(self.search_with_counts(query, search_type, limit)?.0)
+    }
+
+    /// Like [`Self::search_with_type`], also returning per-mode result counts for the filter chips.
+    /// Filename mode stays a pure SQLite lookup and returns no counts.
+    pub fn search_with_counts(
+        &self,
+        query: &str,
+        search_type: Option<&str>,
+        limit: usize,
+    ) -> Result<(Vec<SearchResultItem>, Option<ModeCounts>)> {
         match search_type {
-            Some("filename") => self.search_filenames(query, limit),
-            Some("content") => self.search_content(query, limit),
-            Some("visual") | Some("image") | Some("images") => self.search_visual(query, limit),
-            _ => self.search(query, limit),
+            Some("filename") => Ok((self.search_filenames(query, limit)?, None)),
+            Some("content") => self.search_mode(query, SearchMode::Content, limit),
+            Some("visual") | Some("image") | Some("images") => {
+                self.search_mode(query, SearchMode::Visual, limit)
+            }
+            _ => self.search_mode(query, SearchMode::All, limit),
         }
     }
 }
 
-fn is_visual_intent(query: &str) -> bool {
-    let q = query.to_lowercase();
-    let visual_keywords = [
-        "image", "images", "photo", "photos", "picture", "pictures", "pic", "pics",
-        "screenshot", "screenshots", "wallpaper", "wallpapers", "sunset", "sunrise",
-        "mountain", "landscape", "diagram", "chart", "graph", "drawing", "art",
-        "logo", "icon", "background", "portrait", "scenery", "beach", "sky",
-        "nature", "cat", "dog", "avatar", "poster", "visual", "mockup",
-        "illustration", "banner", "thumbnail", "preview", "selfie",
-    ];
-    let tokens: Vec<&str> = q
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|s| !s.is_empty())
-        .collect();
-    tokens.iter().any(|tok| visual_keywords.contains(tok))
+const MAX_FILENAME_HITS: usize = 10;
+const KEYWORD_CHUNK_FETCH: usize = 60;
+const MAX_SEMANTIC_HITS: usize = 15;
+const MAX_VISUAL_IMAGE_HITS: usize = 24;
+const MAX_VISUAL_WEAK_IMAGE_HITS: usize = 6;
+const MAX_BLENDED_IMAGE_HITS: usize = 6;
+const MAX_BLENDED_RESULTS: usize = 20;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SearchMode {
+    All,
+    Content,
+    Visual,
+}
+
+#[derive(Default)]
+struct VectorOutcome {
+    hits: Vec<VectorSearchResult>,
+    /// Best z-score among admitted hits; `None` when the corpus was too small for statistics.
+    top_z: Option<f32>,
+}
+
+/// Best full-text chunk for one file.
+struct KeywordHit {
+    file_id: String,
+    filename: String,
+    snippet: String,
+    page_number: Option<i32>,
+    line_number: Option<i32>,
+    is_ocr: bool,
+}
+
+struct Retrieved {
+    filename: Vec<SearchResultItem>,
+    keyword: Vec<KeywordHit>,
+    text_semantic: VectorOutcome,
+    images: VectorOutcome,
+}
+
+/// Collapses chunk-level BM25 hits (already sorted best-first) to one entry per file.
+fn group_keyword_hits(hits: Vec<crate::tantivy_index::FullTextHit>) -> Vec<KeywordHit> {
+    let mut seen = std::collections::HashSet::new();
+    hits.into_iter()
+        .filter(|h| seen.insert(h.file_id.clone()))
+        .map(|h| KeywordHit {
+            is_ocr: h.modality == "ocr",
+            file_id: h.file_id,
+            filename: h.filename,
+            snippet: h.snippet,
+            page_number: h.page_number,
+            line_number: h.line_number,
+        })
+        .collect()
+}
+
+/// True when `query` appears in `name` delimited by non-alphanumerics ("cat.png", "my_cat_pic").
+fn is_word_boundary_match(name: &str, query: &str) -> bool {
+    if query.is_empty() {
+        return false;
+    }
+    let bytes = name.as_bytes();
+    name.match_indices(query).any(|(start, m)| {
+        let end = start + m.len();
+        let before_ok = start == 0 || !(bytes[start - 1] as char).is_alphanumeric();
+        let after_ok = end >= bytes.len() || !(bytes[end] as char).is_alphanumeric();
+        before_ok && after_ok
+    })
+}
+
+/// Identity used to collapse duplicate copies. File fingerprints are size+mtime, so copies made at
+/// different times differ; instead compare type, size, and the evidence that matched.
+fn duplicate_key(
+    rec: &FileRecord,
+    keyword: Option<&KeywordHit>,
+    semantic: Option<&VectorSearchResult>,
+    image: Option<&VectorSearchResult>,
+) -> String {
+    let evidence = if let Some(img) = image {
+        format!("img:{:.5}", img.similarity)
+    } else if let Some(k) = keyword {
+        format!("kw:{}", k.snippet.chars().take(80).collect::<String>())
+    } else if let Some(s) = semantic {
+        format!("sem:{}", s.snippet.chars().take(80).collect::<String>())
+    } else {
+        format!("name:{}", rec.filename.to_lowercase())
+    };
+    format!("{}:{}:{}", rec.extension.to_lowercase(), rec.size_bytes, evidence)
+}
+
+fn build_result_item(
+    rec: &FileRecord,
+    query_text: &str,
+    filename: Option<&SearchResultItem>,
+    keyword: Option<&KeywordHit>,
+    semantic: Option<&VectorSearchResult>,
+    image: Option<&VectorSearchResult>,
+) -> SearchResultItem {
+    let mut reasons: Vec<String> = Vec::new();
+    if let Some(f) = filename {
+        reasons.extend(f.match_reasons.iter().cloned());
+    }
+    if let Some(k) = keyword {
+        reasons.push(if k.is_ocr {
+            "Screenshot OCR match".to_string()
+        } else if let Some(p) = k.page_number {
+            format!("Full-text match (Page {})", p)
+        } else if let Some(l) = k.line_number {
+            format!("Full-text match (Line {})", l)
+        } else {
+            "Full-text match (Document body)".to_string()
+        });
+    }
+    if let Some(s) = semantic {
+        reasons.push(if s.modality == "ocr" {
+            format!("OCR text match ({:.0}% relevance)", s.score * 100.0)
+        } else {
+            format!("Semantic concept match ({:.0}% relevance)", s.score * 100.0)
+        });
+    }
+    if let Some(i) = image {
+        reasons.push(format!(
+            "Visual semantic match ({:.0}% relevance)",
+            i.score * 100.0
+        ));
+    }
+
+    let match_type = match (filename, keyword, semantic) {
+        (_, Some(k), _) if k.is_ocr => MatchType::Ocr,
+        (Some(_), _, _) => MatchType::Filename,
+        (None, Some(_), _) => MatchType::Keyword,
+        (None, None, Some(s)) if s.modality == "ocr" => MatchType::Ocr,
+        _ => MatchType::Semantic,
+    };
+
+    let snippet = keyword
+        .map(|k| k.snippet.clone())
+        .or_else(|| semantic.map(|s| s.snippet.clone()))
+        .or_else(|| image.map(|_| format!("Visual contents match \"{}\"", query_text)));
+    let page_number = keyword
+        .and_then(|k| k.page_number)
+        .or_else(|| semantic.and_then(|s| s.page_number));
+
+    SearchResultItem {
+        id: rec.id.clone(),
+        path: rec.path.clone(),
+        filename: rec.filename.clone(),
+        extension: rec.extension.clone(),
+        size_bytes: rec.size_bytes,
+        modified_at: rec.modified_at,
+        score: 0.0,
+        match_type,
+        match_reasons: reasons,
+        snippet,
+        page_number,
+    }
 }
 
 impl Database {
