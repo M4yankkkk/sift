@@ -102,6 +102,22 @@ pub(crate) fn spawn_scan_worker(
             tracing::info!("Scan completed: indexed {} files", total_indexed);
             *last_scan.lock().unwrap() = Some(Utc::now());
 
+            // Upgrade vectors left by a previous embedding model (e.g. moving to EmbeddingGemma 2).
+            // Resumable; a rescan request pauses it so new files are indexed first.
+            if db.count_stale_embedding_files().unwrap_or(0) > 0 {
+                let result = db.reembed_stale(|done, total| {
+                    *current_op.lock().unwrap() = Some(format!(
+                        "Upgrading search model: {} / {} files",
+                        done, total
+                    ));
+                    !needs_rescan.load(Ordering::SeqCst)
+                });
+                match result {
+                    Ok(n) => tracing::info!(files = n, "Re-embedded files with the current model"),
+                    Err(e) => tracing::error!("Re-embedding failed: {}", e),
+                }
+            }
+
             if !needs_rescan.load(Ordering::SeqCst) {
                 break;
             }

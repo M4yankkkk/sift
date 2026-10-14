@@ -489,11 +489,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     fontWeight: 600,
                   }}
                 >
-                  256-dim fastembed ONNX
+                  768-dim · text + images · ONNX
                 </span>
               </div>
               <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-                Asymmetric search queries with instruction prefixes (<code>task: search result | query:</code>)
+                One local model embeds documents, code, and photos into a shared space, so text queries find images too.
               </p>
             </div>
 

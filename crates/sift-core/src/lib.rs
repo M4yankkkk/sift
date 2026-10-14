@@ -1,6 +1,7 @@
 pub mod embeddings;
 pub mod error;
 pub mod extract;
+pub mod gemma2;
 pub mod models;
 pub mod ocr;
 pub mod ranking;

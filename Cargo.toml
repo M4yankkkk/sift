@@ -34,3 +34,12 @@ strip = "debuginfo"
 [profile.test]
 debug = 0
 strip = "debuginfo"
+
+# Vector scoring, image decoding, and tokenization are ~7x slower unoptimized, which made searches in
+# `tauri dev` take ~550 ms. Optimize sift-core and all third-party crates even in dev builds; the
+# Tauri shell itself stays quick to rebuild.
+[profile.dev.package.sift-core]
+opt-level = 3
+
+[profile.dev.package."*"]
+opt-level = 3

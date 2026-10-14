@@ -298,8 +298,9 @@ fn test_phase7_ml_benchmark_evaluations() {
     println!("==========================================================================");
     println!("Ground Truth Corpus Size: {} documents", corpus.len());
     println!("Evaluation Test Suite:   {} queries across 4 categories", test_suite.len());
-    println!("Model Tested:            EmbeddingGemma 2 (740M full fp32, 768-dim)");
-    println!("Fusion Algorithm:        Reciprocal Rank Fusion (RRF, k=60)");
+    println!("Encoder:                 DeterministicMockEngine (offline hash encoder; tests the");
+    println!("                         retrieval pipeline, not real model quality)");
+    println!("Fusion Algorithm:        Weighted Reciprocal Rank Fusion");
     println!("--------------------------------------------------------------------------");
 
     // Evaluate Mode 1: BM25 Lexical Baseline

@@ -45,9 +45,27 @@ pub trait EmbeddingEngine: Send + Sync {
     /// Generates a normalized visual vector embedding for an image file.
     fn embed_image(&self, image_path: &Path) -> Result<Vec<f32>>;
 
+    /// Embeds document chunks in one batch (same prefix format as [`Self::embed_document`]).
+    fn embed_documents(&self, title: Option<&str>, contents: &[String]) -> Result<Vec<Vec<f32>>> {
+        let formatted: Vec<String> = contents
+            .iter()
+            .map(|c| match title {
+                Some(t) if !t.is_empty() => format!("title: {} | text: {}", t, c),
+                _ => format!("title: none | text: {}", c),
+            })
+            .collect();
+        self.embed_texts(&formatted)
+    }
+
     /// Generates a normalized visual-query vector for cross-modal image searching.
     fn embed_vision_query(&self, text: &str) -> Result<Vec<f32>> {
         self.embed_query(text)
+    }
+
+    /// True when text queries and images share one embedding space, so the text query vector can
+    /// be compared against image vectors directly.
+    fn shares_text_image_space(&self) -> bool {
+        false
     }
 }
 
@@ -126,21 +144,13 @@ pub struct FastEmbedEngine {
 impl FastEmbedEngine {
     /// Initializes a local ONNX FastEmbed engine with a specific embedding model.
     pub fn try_new_with_model(model: EmbeddingModel) -> Result<Self> {
+        // Text side is the original text-only EmbeddingGemma (300M); images use CLIP ViT-B/32.
         let (dim, name) = match model {
-            EmbeddingModel::EmbeddingGemma300M => (
-                768,
-                "onnx-community/embeddinggemma-2-ONNX (full 740M fp32)",
-            ),
-            EmbeddingModel::EmbeddingGemma300MQ => (
-                768,
-                "onnx-community/embeddinggemma-2-ONNX (multimodal 740M quantized)",
-            ),
-            EmbeddingModel::EmbeddingGemma300MQ4 => (
-                768,
-                "onnx-community/embeddinggemma-2-ONNX (q4)",
-            ),
-            EmbeddingModel::AllMiniLML6V2 => (384, "all-minilm-l6-v2"),
-            _ => (768, "onnx-community/embeddinggemma-2-ONNX"),
+            EmbeddingModel::EmbeddingGemma300M => (768, "embeddinggemma-300m + clip-vit-b-32"),
+            EmbeddingModel::EmbeddingGemma300MQ => (768, "embeddinggemma-300m-q8 + clip-vit-b-32"),
+            EmbeddingModel::EmbeddingGemma300MQ4 => (768, "embeddinggemma-300m-q4 + clip-vit-b-32"),
+            EmbeddingModel::AllMiniLML6V2 => (384, "all-minilm-l6-v2 + clip-vit-b-32"),
+            _ => (768, "fastembed + clip-vit-b-32"),
         };
 
         let cache_dir = get_sift_models_cache_dir();
@@ -411,13 +421,86 @@ impl EmbeddingEngine for DeterministicMockEngine {
     }
 }
 
-/// Creates a default local embedding engine.
+/// EmbeddingGemma 2: text, documents, and images in one 768-d space (see [`crate::gemma2`]).
+pub struct EmbeddingGemma2Engine {
+    model: crate::gemma2::EmbeddingGemma2,
+}
+
+impl EmbeddingGemma2Engine {
+    pub fn try_new() -> Result<Self> {
+        let cache_dir = get_sift_models_cache_dir();
+        let _ = std::fs::create_dir_all(&cache_dir);
+        let threads = std::env::var("SIFT_EMBED_THREADS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or_else(default_embed_threads);
+        let config = crate::gemma2::Gemma2Config {
+            intra_threads: threads,
+            ..crate::gemma2::Gemma2Config::default()
+        };
+        Ok(Self {
+            model: crate::gemma2::EmbeddingGemma2::load(&cache_dir, config)?,
+        })
+    }
+}
+
+/// Half the logical cores (2..=8): fast enough for indexing without saturating the machine.
+fn default_embed_threads() -> usize {
+    let cores = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    (cores / 2).clamp(2, 8)
+}
+
+impl EmbeddingEngine for EmbeddingGemma2Engine {
+    fn model_name(&self) -> &str {
+        crate::gemma2::MODEL_ID
+    }
+
+    fn dimension(&self) -> usize {
+        crate::gemma2::DIM
+    }
+
+    fn embed_texts(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+        // Small batches keep padding waste and peak memory low for uneven chunk lengths.
+        let mut out = Vec::with_capacity(texts.len());
+        for batch in texts.chunks(8) {
+            out.extend(self.model.embed_texts(batch)?);
+        }
+        Ok(out)
+    }
+
+    fn embed_image(&self, image_path: &Path) -> Result<Vec<f32>> {
+        self.model.embed_image(image_path)
+    }
+
+    fn shares_text_image_space(&self) -> bool {
+        self.model.has_vision()
+    }
+}
+
+/// Creates the default local embedding engine.
+///
+/// `SIFT_EMBEDDING_MODEL`: unset/`embeddinggemma-2` → EmbeddingGemma 2 (text + images, one model);
+/// `legacy` (or `gemma`, `gemma-q`, `gemma-q4`, `minilm`) → fastembed text model + CLIP.
+/// Falls back to legacy, then to the offline mock, if a model cannot be loaded.
 pub fn create_default_embedding_engine() -> Arc<dyn EmbeddingEngine> {
-    // Attempt to load FastEmbed ONNX local models; fall back to fast deterministic mock if unavailable
+    let choice = std::env::var("SIFT_EMBEDDING_MODEL").unwrap_or_default();
+    if choice.is_empty() || choice.eq_ignore_ascii_case("embeddinggemma-2") {
+        match EmbeddingGemma2Engine::try_new() {
+            Ok(engine) => {
+                tracing::info!(model = engine.model_name(), "Initialized EmbeddingGemma 2 engine");
+                return Arc::new(engine);
+            }
+            Err(e) => {
+                tracing::warn!("EmbeddingGemma 2 unavailable ({}); falling back to legacy models", e)
+            }
+        }
+    }
     match FastEmbedEngine::try_new() {
         Ok(engine) => {
             tracing::info!(
-                "Initialized local FastEmbed multimodal embedding engine (model: {}, dimension: {})",
+                "Initialized legacy FastEmbed engine (model: {}, dimension: {})",
                 engine.model_name(),
                 engine.dimension()
             );

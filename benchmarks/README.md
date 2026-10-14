@@ -81,11 +81,18 @@ Evaluated on: Ubuntu 24.04 LTS (x86_64, rustc 1.95.0)
 
 ---
 
-## 7. Phase 7 Measured Results: ML Retrieval & IR Evaluation (Recorded October 2026)
+## 7. Phase 7 Pipeline Test: Retrieval Fusion with an Offline Mock Encoder (Recorded October 2026)
 
-Evaluated on: Ubuntu 24.04 LTS (x86_64, rustc 1.95.0, AMD/Intel AVX2)  
-Model: Google DeepMind EmbeddingGemma 2 (740M fp32, 768-dimensional ONNX embeddings)  
-Fusion Strategy: Reciprocal Rank Fusion (RRF, $k=60$) combining Tantivy BM25 + Vector Cosine Similarity  
+> **Read this first:** these numbers come from `phase7_ml_benchmark_test.rs`, which runs the full
+> retrieval pipeline with `DeterministicMockEngine`, a hash-based stand-in encoder that needs no
+> model download. They verify that BM25, vector search, and fusion are wired together correctly on a
+> 10-document synthetic corpus. They are **not** a measurement of EmbeddingGemma 2's quality, and
+> the sub-millisecond latencies reflect a tiny corpus and a trivial encoder. Real-index results are
+> in section 8.
+
+Evaluated on: Ubuntu 24.04 LTS (x86_64, rustc 1.95.0)  
+Encoder: `DeterministicMockEngine` (offline, deterministic, 768-dim)  
+Fusion Strategy: Reciprocal Rank Fusion combining Tantivy BM25 + vector cosine similarity  
 Query Set: 10 ground-truth evaluation queries across Lexical, Paraphrase/Conceptual, OCR Document, and Visual Multimodal categories.
 
 ### 7.1 Quantitative IR Metrics Comparison

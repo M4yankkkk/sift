@@ -201,6 +201,18 @@ impl Database {
             "#,
         )?;
 
+        // Which embedding model produced each vector; vectors from different models are never compared.
+        let has_model_column = conn
+            .prepare("SELECT 1 FROM pragma_table_info('chunk_embeddings') WHERE name = 'model'")?
+            .exists([])?;
+        if !has_model_column {
+            conn.execute("ALTER TABLE chunk_embeddings ADD COLUMN model TEXT", [])?;
+        }
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_embeddings_model ON chunk_embeddings(model)",
+            [],
+        )?;
+
         Ok(())
     }
 
@@ -464,10 +476,9 @@ impl Database {
             }
         });
 
-        let is_eco = self
-            .get_settings()
-            .map(|s| s.resource_mode == crate::models::ResourceMode::Eco)
-            .unwrap_or(false);
+        let settings = self.get_settings().unwrap_or_default();
+        let is_eco = settings.resource_mode == crate::models::ResourceMode::Eco;
+        let embeddings_on = settings.ml_enabled && self.embedding_engine.is_some();
 
         // Ingest and index document chunks into Tantivy and vector embeddings
         for (path, filename, extension, id) in file_records_to_index {
@@ -475,41 +486,21 @@ impl Database {
             let is_ocr = crate::ocr::is_ocr_supported_extension(&extension);
 
             // 1. If it's an image, embed visual vector if embedding engine is active
-            if is_image {
-                if let Some(ref engine) = self.embedding_engine {
-                    if is_eco {
-                        // Eco mode throttles background heavy ML passes to conserve CPU and battery
-                        std::thread::sleep(std::time::Duration::from_millis(20));
-                    }
-                    match engine.embed_image(Path::new(&path)) {
-
-                        Ok(img_vec) => {
-                            let blob = crate::embeddings::serialize_vector(&img_vec);
-                            let emb_id = Uuid::new_v4().to_string();
-                            let now = Utc::now().timestamp();
-                            let conn = self.conn.lock().unwrap();
-                            let _ = conn.execute(
-                                "DELETE FROM chunk_embeddings WHERE file_id = ?1 AND modality = 'image'",
-                                params![id],
-                            );
-                            let _ = conn.execute(
-                                r#"
-                                INSERT INTO chunk_embeddings (id, file_id, chunk_index, modality, page_number, line_number, snippet, embedding, created_at)
-                                VALUES (?1, ?2, 0, 'image', NULL, NULL, ?3, ?4, ?5)
-                                "#,
-                                params![emb_id, id, filename, blob, now],
-                            );
-                            tracing::info!(path = %path, "Visual vector generated successfully");
-                        }
-                        Err(e) => {
-                            tracing::warn!(path = %path, error = %e, "Failed to generate visual image embedding");
-                        }
-                    }
+            if is_image && embeddings_on {
+                if is_eco {
+                    // Eco mode throttles background heavy ML passes to conserve CPU and battery
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                if let Err(e) = self.store_image_embedding(&id, &path, &filename) {
+                    tracing::warn!(path = %path, error = %e, "Failed to generate visual image embedding");
                 }
             }
 
             // 2. If OCR is supported on this image, extract text
             if is_ocr {
+                if !settings.ocr_enabled {
+                    continue;
+                }
                 if let Ok(Some(ocr_res)) = crate::ocr::extract_image_ocr(Path::new(&path)) {
                     if !ocr_res.full_text.trim().is_empty() {
                         let regions_json =
@@ -552,25 +543,14 @@ impl Database {
                         }
 
                         // Embed OCR text if embedding engine is active
-                        if let Some(ref engine) = self.embedding_engine {
-                            if let Ok(ocr_vec) = engine.embed_document(Some(&filename), &ocr_res.full_text) {
-                                let blob = crate::embeddings::serialize_vector(&ocr_vec);
-                                let emb_id = Uuid::new_v4().to_string();
-                                let now = Utc::now().timestamp();
-                                let snippet = safe_truncate_str(&ocr_res.full_text, 247);
-                                let conn = self.conn.lock().unwrap();
-                                let _ = conn.execute(
-                                    "DELETE FROM chunk_embeddings WHERE file_id = ?1 AND modality = 'ocr'",
-                                    params![id],
-                                );
-                                let _ = conn.execute(
-                                    r#"
-                                    INSERT INTO chunk_embeddings (id, file_id, chunk_index, modality, page_number, line_number, snippet, embedding, created_at)
-                                    VALUES (?1, ?2, 0, 'ocr', NULL, NULL, ?3, ?4, ?5)
-                                    "#,
-                                    params![emb_id, id, snippet, blob, now],
-                                );
-                            }
+                        let ocr_chunk = crate::extract::DocumentChunk {
+                            chunk_index: 0,
+                            page_number: None,
+                            line_number: None,
+                            content: ocr_res.full_text.clone(),
+                        };
+                        if embeddings_on {
+                            self.store_text_embeddings(&id, &filename, "ocr", &[ocr_chunk]);
                         }
                     }
                 }
@@ -578,53 +558,15 @@ impl Database {
                 // 3. Document or source code file
                 let chunks = extract_document_chunks(Path::new(&path)).unwrap_or_default();
                 if !chunks.is_empty() {
-                    let modality = if extension == "pdf" {
-                        "pdf"
-                    } else if crate::extract::is_text_or_code_extension(&extension) {
-                        "code"
-                    } else {
-                        "text"
-                    };
+                    let modality = document_modality(&extension);
 
                     if let Some(ref text_index) = self.text_index {
                         let _ =
-                            text_index.upsert_file_chunks(&id, &path, &filename, modality, &chunks);
+                            text_index.upsert_file_chunks(&id, &path, &filename, &modality, &chunks);
                     }
 
-                    if let Some(ref engine) = self.embedding_engine {
-                        let conn = self.conn.lock().unwrap();
-                        let _ = conn.execute(
-                            "DELETE FROM chunk_embeddings WHERE file_id = ?1 AND modality != 'image'",
-                            params![id],
-                        );
-                        drop(conn);
-
-                        for chunk in &chunks {
-                            if let Ok(chunk_vec) = engine.embed_document(Some(&filename), &chunk.content) {
-                                let blob = crate::embeddings::serialize_vector(&chunk_vec);
-                                let emb_id = Uuid::new_v4().to_string();
-                                let now = Utc::now().timestamp();
-                                let snippet = safe_truncate_str(&chunk.content, 247);
-                                let conn = self.conn.lock().unwrap();
-                                let _ = conn.execute(
-                                    r#"
-                                    INSERT INTO chunk_embeddings (id, file_id, chunk_index, modality, page_number, line_number, snippet, embedding, created_at)
-                                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-                                    "#,
-                                    params![
-                                        emb_id,
-                                        id,
-                                        chunk.chunk_index,
-                                        modality,
-                                        chunk.page_number,
-                                        chunk.line_number,
-                                        snippet,
-                                        blob,
-                                        now,
-                                    ],
-                                );
-                            }
-                        }
+                    if embeddings_on {
+                        self.store_text_embeddings(&id, &filename, &modality, &chunks);
                     }
                 }
             }
@@ -635,6 +577,189 @@ impl Database {
         }
 
         Ok(count)
+    }
+
+    fn current_model(&self) -> Option<&str> {
+        self.embedding_engine.as_ref().map(|e| e.model_name())
+    }
+
+    /// Replaces a file's image vector with a fresh one from the active engine.
+    fn store_image_embedding(&self, file_id: &str, path: &str, filename: &str) -> Result<()> {
+        let engine = match self.embedding_engine {
+            Some(ref e) => e,
+            None => return Ok(()),
+        };
+        let vector = engine.embed_image(Path::new(path))?;
+        let blob = crate::embeddings::serialize_vector(&vector);
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM chunk_embeddings WHERE file_id = ?1 AND modality = 'image'",
+            params![file_id],
+        )?;
+        conn.execute(
+            r#"
+            INSERT INTO chunk_embeddings (id, file_id, chunk_index, modality, page_number, line_number, snippet, embedding, created_at, model)
+            VALUES (?1, ?2, 0, 'image', NULL, NULL, ?3, ?4, ?5, ?6)
+            "#,
+            params![
+                Uuid::new_v4().to_string(),
+                file_id,
+                filename,
+                blob,
+                Utc::now().timestamp(),
+                engine.model_name()
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Replaces a file's text/OCR vectors with fresh ones for `chunks`, embedded in one batch.
+    fn store_text_embeddings(
+        &self,
+        file_id: &str,
+        filename: &str,
+        modality: &str,
+        chunks: &[crate::extract::DocumentChunk],
+    ) {
+        let engine = match self.embedding_engine {
+            Some(ref e) => e,
+            None => return,
+        };
+        let contents: Vec<String> = chunks.iter().map(|c| c.content.clone()).collect();
+        let vectors = match engine.embed_documents(Some(filename), &contents) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(file = %filename, error = %e, "Failed to embed document chunks");
+                return;
+            }
+        };
+        let conn = self.conn.lock().unwrap();
+        let _ = conn.execute(
+            "DELETE FROM chunk_embeddings WHERE file_id = ?1 AND modality != 'image'",
+            params![file_id],
+        );
+        let now = Utc::now().timestamp();
+        for (chunk, vector) in chunks.iter().zip(vectors) {
+            let _ = conn.execute(
+                r#"
+                INSERT INTO chunk_embeddings (id, file_id, chunk_index, modality, page_number, line_number, snippet, embedding, created_at, model)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                "#,
+                params![
+                    Uuid::new_v4().to_string(),
+                    file_id,
+                    chunk.chunk_index,
+                    modality,
+                    chunk.page_number,
+                    chunk.line_number,
+                    safe_truncate_str(&chunk.content, 247),
+                    crate::embeddings::serialize_vector(&vector),
+                    now,
+                    engine.model_name(),
+                ],
+            );
+        }
+    }
+
+    /// Number of files whose vectors were produced by a different model than the active engine.
+    pub fn count_stale_embedding_files(&self) -> Result<usize> {
+        let model = match self.current_model() {
+            Some(m) => m.to_string(),
+            None => return Ok(0),
+        };
+        let conn = self.conn.lock().unwrap();
+        let n: i64 = conn.query_row(
+            r#"
+            SELECT COUNT(DISTINCT e.file_id) FROM chunk_embeddings e JOIN files f ON f.id = e.file_id
+            WHERE f.is_deleted = 0 AND (e.model IS NULL OR e.model != ?1)
+            "#,
+            params![model],
+            |r| r.get(0),
+        )?;
+        Ok(n as usize)
+    }
+
+    /// Re-embeds every file whose vectors came from another model (e.g. after upgrading to
+    /// EmbeddingGemma 2), images first. Stored OCR text is reused and document chunks are
+    /// re-extracted; keyword indexes are untouched. Progress is saved per file, so an interrupted
+    /// run resumes where it stopped. `progress(done, total)` is called after each file; returning
+    /// `false` stops early. Returns the number of files processed.
+    pub fn reembed_stale<F: FnMut(usize, usize) -> bool>(&self, mut progress: F) -> Result<usize> {
+        let model = match self.current_model() {
+            Some(m) => m.to_string(),
+            None => return Ok(0),
+        };
+        if !self.get_settings().map(|s| s.ml_enabled).unwrap_or(true) {
+            return Ok(0);
+        }
+        let stale: Vec<(String, String, String, String)> = {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                r#"
+                SELECT f.id, f.path, f.filename, f.extension
+                FROM chunk_embeddings e JOIN files f ON f.id = e.file_id
+                WHERE f.is_deleted = 0 AND (e.model IS NULL OR e.model != ?1)
+                GROUP BY f.id
+                ORDER BY MAX(e.modality = 'image') DESC, f.path
+                "#,
+            )?;
+            let rows = stmt.query_map(params![model], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+
+        let total = stale.len();
+        let is_eco = self
+            .get_settings()
+            .map(|s| s.resource_mode == crate::models::ResourceMode::Eco)
+            .unwrap_or(false);
+        for (done, (id, path, filename, extension)) in stale.into_iter().enumerate() {
+            if crate::embeddings::is_image_supported_for_vision(&extension) {
+                if let Err(e) = self.store_image_embedding(&id, &path, &filename) {
+                    tracing::warn!(path = %path, error = %e, "Re-embedding image failed");
+                }
+            }
+            let ocr_text: Option<String> = {
+                let conn = self.conn.lock().unwrap();
+                conn.query_row(
+                    "SELECT full_text FROM ocr_data WHERE file_id = ?1",
+                    params![id],
+                    |r| r.get(0),
+                )
+                .optional()?
+            };
+            if let Some(text) = ocr_text.filter(|t| !t.trim().is_empty()) {
+                let chunk = crate::extract::DocumentChunk {
+                    chunk_index: 0,
+                    page_number: None,
+                    line_number: None,
+                    content: text,
+                };
+                self.store_text_embeddings(&id, &filename, "ocr", &[chunk]);
+            } else if !crate::embeddings::is_image_supported_for_vision(&extension) {
+                let chunks = extract_document_chunks(Path::new(&path)).unwrap_or_default();
+                if !chunks.is_empty() {
+                    self.store_text_embeddings(&id, &filename, &document_modality(&extension), &chunks);
+                }
+            }
+            // Anything still from the old model could not be regenerated; drop it so it is not
+            // retried on every launch and never mixes with vectors from another space.
+            {
+                let conn = self.conn.lock().unwrap();
+                conn.execute(
+                    "DELETE FROM chunk_embeddings WHERE file_id = ?1 AND (model IS NULL OR model != ?2)",
+                    params![id, model],
+                )?;
+            }
+            if is_eco {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            if !progress(done + 1, total) {
+                return Ok(done + 1);
+            }
+        }
+        Ok(total)
     }
 
     pub fn search_filenames(&self, query: &str, limit: usize) -> Result<Vec<SearchResultItem>> {
@@ -755,10 +880,11 @@ impl Database {
                    e.modality = 'ocr' AND length(trim(e.snippet)) < 3
             FROM chunk_embeddings e
             JOIN files f ON e.file_id = f.id
-            WHERE f.is_deleted = 0 {}
+            WHERE f.is_deleted = 0 AND e.model IS ?1 {}
             "#,
             modality_clause
         );
+        let model = self.current_model().map(str::to_string);
 
         // Index 0 = text/OCR chunks, 1 = images: the two live in different embedding spaces.
         let mut sums = [(0usize, 0f64, 0f64); 2];
@@ -767,7 +893,7 @@ impl Database {
         {
             let conn = self.conn.lock().unwrap();
             let mut stmt = conn.prepare(&sql)?;
-            let mut rows = stmt.query([])?;
+            let mut rows = stmt.query(params![model])?;
             while let Some(row) = rows.next()? {
                 let is_image: bool = row.get(2)?;
                 let size_bytes: i64 = row.get(3)?;
@@ -894,14 +1020,20 @@ impl Database {
             None => Vec::new(),
         };
 
+        let ml_enabled = self.get_settings().map(|s| s.ml_enabled).unwrap_or(true);
         let (text_semantic, images) = match self.embedding_engine {
-            Some(ref engine) => {
-                let text_semantic = match engine.embed_query(q) {
-                    Ok(v) => self.vector_search(&v, MAX_SEMANTIC_HITS, Some(false), 0.0)?,
-                    Err(_) => VectorOutcome::default(),
+            Some(ref engine) if ml_enabled => {
+                let query_vec = engine.embed_query(q).ok();
+                let text_semantic = match query_vec {
+                    Some(ref v) => self.vector_search(v, MAX_SEMANTIC_HITS, Some(false), 0.0)?,
+                    None => VectorOutcome::default(),
+                };
+                let vision_vec = match query_vec {
+                    Some(v) if engine.shares_text_image_space() => Ok(v),
+                    _ => engine.embed_vision_query(q),
                 };
                 let images = if intent.allows_images() {
-                    match engine.embed_vision_query(q) {
+                    match vision_vec {
                         Ok(v) => self.vector_search(
                             &v,
                             MAX_VISUAL_IMAGE_HITS,
@@ -915,7 +1047,7 @@ impl Database {
                 };
                 (text_semantic, images)
             }
-            None => (VectorOutcome::default(), VectorOutcome::default()),
+            _ => (VectorOutcome::default(), VectorOutcome::default()),
         };
 
         Ok(Retrieved {
@@ -1268,6 +1400,16 @@ struct Retrieved {
     keyword: Vec<KeywordHit>,
     text_semantic: VectorOutcome,
     images: VectorOutcome,
+}
+
+fn document_modality(extension: &str) -> String {
+    if extension.eq_ignore_ascii_case("pdf") {
+        "pdf".to_string()
+    } else if crate::extract::is_text_or_code_extension(extension) {
+        "code".to_string()
+    } else {
+        "text".to_string()
+    }
 }
 
 /// Collapses chunk-level BM25 hits (already sorted best-first) to one entry per file.

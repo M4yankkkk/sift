@@ -19,6 +19,12 @@ notify.workspace = true
 crossbeam-channel.workspace = true
 tantivy.workspace = true
 fastembed = "7.1.1"
+# Direct ONNX Runtime access for EmbeddingGemma 2 (versions pinned to what fastembed already uses).
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["ndarray", "std", "api-24"] }
+ndarray = { version = "0.17.2", default-features = false, features = ["std"] }
+tokenizers = { version = "0.23.2", default-features = false, features = ["onig"] }
+image = "0.25.10"
+hf-hub = { version = "0.5.0", default-features = false, features = ["ureq", "native-tls"] }
 
 [dev-dependencies]
 tempfile.workspace = true
