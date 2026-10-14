@@ -18,8 +18,8 @@
 //!   { "query": "country", "mode": "visual" }
 //! ]
 //! ```
-//! `expect` is a path substring that must appear in the top `within` results; `max_images` caps
-//! image results; a case with neither is report-only.
+//! `expect` is a path substring that must appear in the top `within` results (`expect_any`: any of
+//! several substrings); `max_images` caps image results; a case with neither is report-only.
 
 use serde::Deserialize;
 use sift_core::embeddings::{create_default_embedding_engine, is_image_supported_for_vision};
@@ -33,6 +33,8 @@ struct Case {
     #[serde(default = "default_mode")]
     mode: String,
     expect: Option<String>,
+    #[serde(default)]
+    expect_any: Vec<String>,
     #[serde(default = "default_within")]
     within: usize,
     max_images: Option<usize>,
@@ -102,13 +104,14 @@ fn live_index_search_quality() {
             .iter()
             .filter(|r| is_image_supported_for_vision(&r.extension))
             .count();
-        let rank = case
-            .expect
-            .as_ref()
-            .and_then(|e| results.iter().position(|r| r.path.contains(e.as_str())));
+        let mut expected: Vec<&str> = case.expect_any.iter().map(String::as_str).collect();
+        expected.extend(case.expect.as_deref());
+        let rank = results
+            .iter()
+            .position(|r| expected.iter().any(|e| r.path.contains(e)));
 
         let mut verdict = "info";
-        if let Some(expect) = &case.expect {
+        if !expected.is_empty() {
             if rank.map_or(false, |r| r < case.within) {
                 verdict = "PASS";
             } else {
@@ -117,7 +120,7 @@ fn live_index_search_quality() {
                     "{:?}/{}: expected {:?} in top {}, got rank {:?}",
                     case.query,
                     case.mode,
-                    expect,
+                    expected,
                     case.within,
                     rank.map(|r| r + 1)
                 ));
@@ -130,7 +133,7 @@ fn live_index_search_quality() {
                     "{:?}/{}: {} image results, max {}",
                     case.query, case.mode, images, max
                 ));
-            } else if case.expect.is_none() {
+            } else if expected.is_empty() {
                 verdict = "PASS";
             }
         }

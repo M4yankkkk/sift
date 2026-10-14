@@ -579,6 +579,13 @@ impl Database {
         Ok(count)
     }
 
+    fn relevance(&self) -> ranking::RelevanceProfile {
+        self.embedding_engine
+            .as_ref()
+            .map(|e| e.relevance_profile())
+            .unwrap_or_default()
+    }
+
     fn current_model(&self) -> Option<&str> {
         self.embedding_engine.as_ref().map(|e| e.model_name())
     }
@@ -856,7 +863,7 @@ impl Database {
         is_image_only: Option<bool>,
     ) -> Result<Vec<VectorSearchResult>> {
         Ok(self
-            .vector_search(query_vec, limit, is_image_only, ranking::IMAGE_Z_BLENDED)?
+            .vector_search(query_vec, limit, is_image_only, self.relevance().image_z_blended)?
             .hits)
     }
 
@@ -938,6 +945,7 @@ impl Database {
             SimStats::from_sums(sums[1].0, sums[1].1, sums[1].2),
         ];
 
+        let profile = self.relevance();
         let mut admitted: Vec<(String, String, f32, f32, f32)> = Vec::new(); // (file_id, emb_id, sim, z, conf)
         let mut top_z: Option<f32> = None;
         for (file_id, (sim, emb_id, is_image)) in best_by_file {
@@ -945,17 +953,17 @@ impl Database {
             let (passes, z, conf) = if st.is_reliable() {
                 let z = st.z(sim);
                 let (min_z, floor, span) = if is_image {
-                    (image_min_z, ranking::IMAGE_SIM_FLOOR, 2.0)
+                    (image_min_z, profile.image_sim_floor, 2.0)
                 } else {
-                    (ranking::TEXT_Z, ranking::TEXT_SIM_FLOOR, 3.0)
+                    (profile.text_z, profile.text_sim_floor, 3.0)
                 };
                 let conf = 0.55 + 0.40 * ranking::clamp01((z - min_z) / span);
                 (z >= min_z && sim >= floor, z, conf)
             } else if is_image {
-                let t = ranking::IMAGE_SIM_SMALL_CORPUS;
+                let t = profile.image_sim_small_corpus;
                 (sim >= t, 0.0, 0.55 + ranking::clamp01((sim - t) / 0.06) * 0.40)
             } else {
-                let t = ranking::TEXT_SIM_SMALL_CORPUS;
+                let t = profile.text_sim_small_corpus;
                 (sim >= t, 0.0, 0.50 + ranking::clamp01((sim - t) / 0.18) * 0.40)
             };
             if passes {
@@ -1010,6 +1018,7 @@ impl Database {
 
     /// Runs every retriever once for `intent`. Modes then fuse different subsets of the output.
     fn retrieve(&self, intent: &QueryIntent, limit: usize) -> Result<Retrieved> {
+        let profile = self.relevance();
         let q = intent.text.as_str();
         let filename = self.search_filenames(q, limit.max(MAX_FILENAME_HITS))?;
 
@@ -1038,7 +1047,7 @@ impl Database {
                             &v,
                             MAX_VISUAL_IMAGE_HITS,
                             Some(true),
-                            ranking::IMAGE_Z_VISUAL,
+                            profile.image_z_visual,
                         )?,
                         Err(_) => VectorOutcome::default(),
                     }
@@ -1076,6 +1085,7 @@ impl Database {
         };
         let visual = mode == SearchMode::Visual;
         let q_lower = intent.text.to_lowercase();
+        let profile = self.relevance();
 
         let mut lists: Vec<(f32, Vec<String>)> = Vec::new();
 
@@ -1111,7 +1121,7 @@ impl Database {
         // 3. Text-concept embeddings, weighted by how clearly the best chunk stood out.
         let text_weight = ranking::strength_weight(
             retrieved.text_semantic.top_z,
-            ranking::TEXT_Z,
+            profile.text_z,
             2.5,
             0.5,
             0.95,
@@ -1139,7 +1149,7 @@ impl Database {
                     .hits
                     .iter()
                     .filter(|h| {
-                        let strong = h.z_score >= ranking::IMAGE_Z_BLENDED
+                        let strong = h.z_score >= profile.image_z_blended
                             || retrieved.images.top_z.is_none();
                         weak += (!strong) as usize;
                         strong || weak <= MAX_VISUAL_WEAK_IMAGE_HITS
@@ -1152,13 +1162,13 @@ impl Database {
                     .images
                     .hits
                     .iter()
-                    .filter(|h| h.z_score >= ranking::IMAGE_Z_BLENDED || retrieved.images.top_z.is_none())
+                    .filter(|h| h.z_score >= profile.image_z_blended || retrieved.images.top_z.is_none())
                     .take(MAX_BLENDED_IMAGE_HITS)
                     .map(|h| h.file_id.clone())
                     .collect();
                 let base = ranking::strength_weight(
                     retrieved.images.top_z,
-                    ranking::IMAGE_Z_BLENDED,
+                    profile.image_z_blended,
                     1.0,
                     0.55,
                     1.2,
@@ -1218,7 +1228,7 @@ impl Database {
                 .copied()
                 .filter(|h| !visual || h.modality == "ocr");
             let in_image = image_by_id.get(id.as_str()).copied().filter(|h| {
-                visual || h.z_score >= ranking::IMAGE_Z_BLENDED || retrieved.images.top_z.is_none()
+                visual || h.z_score >= profile.image_z_blended || retrieved.images.top_z.is_none()
             });
             if mode == SearchMode::Content && in_keyword.is_none() && in_semantic.is_none() {
                 continue;

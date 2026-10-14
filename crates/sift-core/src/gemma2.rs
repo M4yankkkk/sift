@@ -23,6 +23,19 @@ pub const REPO: &str = "onnx-community/embeddinggemma-2-ONNX";
 pub const MODEL_ID: &str = "google/embeddinggemma-2 (onnx q8 text, q4 vision, 70 tokens)";
 pub const DIM: usize = 768;
 
+/// Calibrated on a real ~5k-file index (670 photos/screenshots, 14.6k text chunks). Query-to-image
+/// cosines sit near 0.60 (sd ≈ 0.025): true matches stood 4–6.4σ above the mean ("sunset" 5.9σ,
+/// "dog" 6.4σ, "earth" 4.5σ) while queries with no matching photo topped out at 2.8–3.4σ.
+pub const RELEVANCE_PROFILE: crate::ranking::RelevanceProfile = crate::ranking::RelevanceProfile {
+    image_z_blended: 3.5,
+    image_z_visual: 3.0,
+    text_z: 4.2,
+    image_sim_floor: 0.55,
+    text_sim_floor: 0.22,
+    image_sim_small_corpus: 0.68,
+    text_sim_small_corpus: 0.45,
+};
+
 const TOKENIZER_FILE: &str = "tokenizer.json";
 
 /// ONNX weight precision. q4 uses 4-bit `MatMulNBits` kernels, q8 dynamic 8-bit quantization.
@@ -78,8 +91,9 @@ const POOLING_KERNEL: usize = 3;
 const PATCH_PIXELS: usize = PATCH_SIZE * PATCH_SIZE * 3;
 const FEATURE_DIM: usize = 512;
 
-/// Text chunks are short; capping tokens bounds per-chunk latency on long inputs.
-const MAX_TEXT_TOKENS: usize = 1024;
+/// Document chunks are ~512 tokens; the cap bounds latency and memory on unusually dense chunks.
+/// Keyword search still indexes every word.
+const MAX_TEXT_TOKENS: usize = 512;
 /// Refuse to decode absurdly large images (decoded RGB would exceed ~240 MB).
 const MAX_IMAGE_PIXELS: u64 = 80_000_000;
 
@@ -259,8 +273,19 @@ fn internal(what: &str, e: impl std::fmt::Display) -> SiftError {
 }
 
 fn session(path: &Path, intra_threads: usize) -> Result<Session> {
+    // Sift stays resident, so memory must come back after a burst of indexing. ONNX Runtime's CPU
+    // arena and per-shape memory patterns otherwise keep the peak (2.7 GB after embedding a
+    // 1,300-chunk PDF) reserved for the life of the process.
     let what = format!("load {}", path.display());
     let builder = Session::builder().map_err(|e| internal(&what, e))?;
+    let builder = builder
+        .with_execution_providers([ort::ep::CPU::default()
+            .with_arena_allocator(false)
+            .build()])
+        .map_err(|e| internal(&what, e))?;
+    let builder = builder
+        .with_memory_pattern(false)
+        .map_err(|e| internal(&what, e))?;
     let mut builder = builder
         .with_intra_threads(intra_threads.max(1))
         .map_err(|e| internal(&what, e))?;

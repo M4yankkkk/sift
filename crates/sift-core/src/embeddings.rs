@@ -67,6 +67,11 @@ pub trait EmbeddingEngine: Send + Sync {
     fn shares_text_image_space(&self) -> bool {
         false
     }
+
+    /// Relevance thresholds calibrated for this engine's similarity distributions.
+    fn relevance_profile(&self) -> crate::ranking::RelevanceProfile {
+        crate::ranking::RelevanceProfile::CLIP_GEMMA1
+    }
 }
 
 /// Computes the cosine similarity between two normalized vectors.
@@ -464,7 +469,7 @@ impl EmbeddingEngine for EmbeddingGemma2Engine {
     fn embed_texts(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
         // Small batches keep padding waste and peak memory low for uneven chunk lengths.
         let mut out = Vec::with_capacity(texts.len());
-        for batch in texts.chunks(8) {
+        for batch in texts.chunks(4) {
             out.extend(self.model.embed_texts(batch)?);
         }
         Ok(out)
@@ -476,6 +481,10 @@ impl EmbeddingEngine for EmbeddingGemma2Engine {
 
     fn shares_text_image_space(&self) -> bool {
         self.model.has_vision()
+    }
+
+    fn relevance_profile(&self) -> crate::ranking::RelevanceProfile {
+        crate::gemma2::RELEVANCE_PROFILE
     }
 }
 

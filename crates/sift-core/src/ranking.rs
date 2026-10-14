@@ -12,20 +12,44 @@ use std::collections::HashMap;
 /// Smaller corpora fall back to absolute similarity floors.
 pub const MIN_STATS_N: usize = 50;
 
-/// z-score an image must reach to appear in the blended "All" list.
-pub const IMAGE_Z_BLENDED: f32 = 3.0;
-/// z-score an image must reach in explicit Visual mode (the user asked for images, so show more).
-pub const IMAGE_Z_VISUAL: f32 = 2.5;
-/// z-score a text/OCR chunk must reach to count as a semantic concept match.
-pub const TEXT_Z: f32 = 4.2;
+/// Relevance gates for one embedding engine. Each model has its own similarity scale (CLIP
+/// text-image cosines sit near 0.2, EmbeddingGemma 2's near 0.6), so thresholds travel with it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RelevanceProfile {
+    /// z-score an image must reach to appear in the blended "All" list.
+    pub image_z_blended: f32,
+    /// z-score an image must reach in explicit Visual mode (the user asked for images).
+    pub image_z_visual: f32,
+    /// z-score a text/OCR chunk must reach to count as a semantic concept match.
+    pub text_z: f32,
+    /// Absolute floors applied alongside z-gates (guard against degenerate corpora).
+    pub image_sim_floor: f32,
+    pub text_sim_floor: f32,
+    /// Absolute thresholds used when the corpus is too small for z-scores.
+    pub image_sim_small_corpus: f32,
+    pub text_sim_small_corpus: f32,
+}
 
-/// Absolute floors applied alongside z-gates (guards against degenerate low-variance corpora).
-pub const IMAGE_SIM_FLOOR: f32 = 0.20;
-pub const TEXT_SIM_FLOOR: f32 = 0.22;
+impl RelevanceProfile {
+    /// CLIP ViT-B/32 images + EmbeddingGemma 300M text (legacy engine, and the test mock).
+    /// Relevant images stood ≥ 3σ above the query's corpus mean; unrelated queries topped out
+    /// near 2.5σ. Text junk topped out ≈ 3.9σ, genuine matches ≥ 4.5σ.
+    pub const CLIP_GEMMA1: Self = Self {
+        image_z_blended: 3.0,
+        image_z_visual: 2.5,
+        text_z: 4.2,
+        image_sim_floor: 0.20,
+        text_sim_floor: 0.22,
+        image_sim_small_corpus: 0.22,
+        text_sim_small_corpus: 0.30,
+    };
+}
 
-/// Absolute thresholds used when the corpus is too small for z-scores (tests, fresh installs).
-pub const IMAGE_SIM_SMALL_CORPUS: f32 = 0.22;
-pub const TEXT_SIM_SMALL_CORPUS: f32 = 0.30;
+impl Default for RelevanceProfile {
+    fn default() -> Self {
+        Self::CLIP_GEMMA1
+    }
+}
 
 /// Reciprocal-rank-fusion damping constant. Small, so the head of each list dominates.
 pub const RRF_K: f32 = 4.0;
