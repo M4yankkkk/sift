@@ -40,4 +40,10 @@ describe("Sift Frontend Contract and Client", () => {
     expect(settings.default_exclusions).toContain(".git");
     expect(settings.default_exclusions).toContain("node_modules");
   });
+
+  it("handles openResult with and without target page numbers safely", async () => {
+    await expect(SiftAPI.openResult("/home/user/document.pdf")).resolves.not.toThrow();
+    await expect(SiftAPI.openResult("/home/user/document.pdf", 14)).resolves.not.toThrow();
+    await expect(SiftAPI.openResult("/home/user/document.pdf", null)).resolves.not.toThrow();
+  });
 });

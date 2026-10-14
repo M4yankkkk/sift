@@ -12,6 +12,8 @@ import {
   Check,
   Zap,
   Terminal,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { SiftAPI } from "../services/tauriClient";
 import { SyntaxHighlighter } from "./SyntaxHighlighter";
@@ -20,12 +22,14 @@ interface PreviewPanelProps {
   item: SearchResultItem | null;
   preview: PreviewResponse | null;
   isLoading?: boolean;
+  onPageChange?: (page: number) => void;
 }
 
 export const PreviewPanel: React.FC<PreviewPanelProps> = ({
   item,
   preview,
   isLoading = false,
+  onPageChange,
 }) => {
   const [imgDims, setImgDims] = useState<{ width: number; height: number } | null>(null);
   const [pdfTab, setPdfTab] = useState<"visual" | "text">("visual");
@@ -48,7 +52,8 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
   }
 
   const handleOpen = () => {
-    SiftAPI.openResult(item.path);
+    const targetPage = preview?.page_number || item.page_number;
+    SiftAPI.openResult(item.path, targetPage);
   };
 
   const handleReveal = () => {
@@ -211,6 +216,28 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
             <div className="pdf-badge-header">
               <FileText size={13} />
               <span>PDF • Page {preview.page_number || item.page_number || 1} Preview</span>
+              {onPageChange && (
+                <div style={{ display: "inline-flex", alignItems: "center", gap: 3, marginLeft: 6 }}>
+                  <button
+                    className="pdf-toggle-btn"
+                    style={{ padding: "2px 5px", display: "inline-flex", alignItems: "center" }}
+                    disabled={(preview.page_number || item.page_number || 1) <= 1 || isLoading}
+                    onClick={() => onPageChange((preview.page_number || item.page_number || 1) - 1)}
+                    title="Previous Page"
+                  >
+                    <ChevronLeft size={11} />
+                  </button>
+                  <button
+                    className="pdf-toggle-btn"
+                    style={{ padding: "2px 5px", display: "inline-flex", alignItems: "center" }}
+                    disabled={isLoading}
+                    onClick={() => onPageChange((preview.page_number || item.page_number || 1) + 1)}
+                    title="Next Page"
+                  >
+                    <ChevronRight size={11} />
+                  </button>
+                </div>
+              )}
             </div>
 
             {hasVisual && textContent && (
@@ -377,10 +404,18 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
           <button
             className="btn-open"
             onClick={handleOpen}
-            title="Open file with default system application (Enter)"
+            title={
+              isPdf && (preview?.page_number || item.page_number)
+                ? `Open PDF at Page ${preview?.page_number || item.page_number} (Enter)`
+                : "Open file with default system application (Enter)"
+            }
           >
             <ExternalLink size={13} />
-            <span>Open</span>
+            <span>
+              {isPdf && (preview?.page_number || item.page_number)
+                ? `Open Page ${preview?.page_number || item.page_number}`
+                : "Open"}
+            </span>
           </button>
         </div>
       </div>

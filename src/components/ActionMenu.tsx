@@ -65,13 +65,19 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
       ? [
           {
             id: "open",
-            title: "Open File",
-            description: "Open with default system application",
+            title:
+              item.extension.toLowerCase() === "pdf" && item.page_number
+                ? `Open PDF at Page ${item.page_number}`
+                : "Open File",
+            description:
+              item.extension.toLowerCase() === "pdf" && item.page_number
+                ? `Launch default PDF viewer directly at page ${item.page_number}`
+                : "Open with default system application",
             shortcut: "↵",
             icon: <ExternalLink size={15} color="var(--accent-violet-light)" />,
             category: "file" as const,
             action: () => {
-              SiftAPI.openResult(item.path);
+              SiftAPI.openResult(item.path, item.page_number);
               onClose();
             },
           },

@@ -153,6 +153,19 @@ export const App: React.FC = () => {
     };
   }, [selectedItem, showPreview]);
 
+  const handlePageChange = async (newPage: number) => {
+    if (!selectedItem || newPage < 1) return;
+    setIsPreviewLoading(true);
+    try {
+      const p = await SiftAPI.previewResult(selectedItem.id, newPage);
+      setPreview(p);
+    } catch (err) {
+      console.error("Failed to load page preview:", err);
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  };
+
   // Keyboard navigation (ArrowUp, ArrowDown, Enter, Tab, Escape)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -231,7 +244,8 @@ export const App: React.FC = () => {
       // Enter or Ctrl+O opens selected result
       if ((e.key === "Enter" || (e.ctrlKey && e.key.toLowerCase() === "o")) && selectedItem) {
         e.preventDefault();
-        SiftAPI.openResult(selectedItem.path);
+        const targetPage = preview?.page_number || selectedItem.page_number;
+        SiftAPI.openResult(selectedItem.path, targetPage);
         return;
       }
 
@@ -301,6 +315,7 @@ export const App: React.FC = () => {
             item={selectedItem}
             preview={preview}
             isLoading={isPreviewLoading}
+            onPageChange={handlePageChange}
           />
         )}
       </main>

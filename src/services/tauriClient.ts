@@ -135,12 +135,12 @@ export const SiftAPI = {
     return invoke<PreviewResponse>("preview_result", { fileId, page: page || null });
   },
 
-  openResult: async (path: string): Promise<void> => {
+  openResult: async (path: string, page?: number | null): Promise<void> => {
     if (!isTauriEnvironment()) {
-      console.log("[Mock] Opening file:", path);
+      console.log(`[Mock] Opening file: ${path} (page ${page ?? "default"})`);
       return;
     }
-    return invoke<void>("open_result", { path });
+    return invoke<void>("open_result", { path, page: page || null });
   },
 
   revealResult: async (path: string): Promise<void> => {

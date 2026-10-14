@@ -14,6 +14,7 @@ import {
   Compass,
   FolderOpen,
 } from "lucide-react";
+import { SiftAPI } from "../services/tauriClient";
 
 interface ResultsListProps {
   results: SearchResultItem[];
@@ -203,6 +204,7 @@ export const ResultsList: React.FC<ResultsListProps> = ({
             data-id={item.id}
             className={`result-item ${isSelected ? "selected" : ""}`}
             onClick={() => onSelect(item)}
+            onDoubleClick={() => SiftAPI.openResult(item.path, item.page_number)}
           >
             <div className="result-item-main">
               {/* File Icon Pill */}
@@ -255,7 +257,7 @@ export const ResultsList: React.FC<ResultsListProps> = ({
 
               {/* Quick Action Hint */}
               <div className="result-item-action-hint">
-                <span>Open</span>
+                <span>{item.page_number ? `p.${item.page_number}` : "Open"}</span>
                 <CornerDownLeft size={11} />
               </div>
             </div>

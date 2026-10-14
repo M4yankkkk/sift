@@ -283,14 +283,141 @@ pub async fn preview_result(
     })
 }
 
+fn open_pdf_at_page(path: &str, page: i32) -> std::io::Result<bool> {
+    // 1. Detect user's configured default PDF application on Linux
+    let default_app = Command::new("xdg-mime")
+        .args(["query", "default", "application/pdf"])
+        .output()
+        .ok()
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .map(|s| s.trim().to_lowercase())
+        .unwrap_or_default();
+
+    // 2. Dispatch based on the detected default application
+    if default_app.contains("evince") {
+        if Command::new("evince")
+            .arg("-i")
+            .arg(page.to_string())
+            .arg(path)
+            .spawn()
+            .is_ok()
+        {
+            return Ok(true);
+        }
+    } else if default_app.contains("okular") {
+        if Command::new("okular")
+            .arg("-p")
+            .arg(page.to_string())
+            .arg(path)
+            .spawn()
+            .is_ok()
+        {
+            return Ok(true);
+        }
+    } else if default_app.contains("atril") {
+        if Command::new("atril")
+            .arg("-p")
+            .arg(page.to_string())
+            .arg(path)
+            .spawn()
+            .is_ok()
+        {
+            return Ok(true);
+        }
+    } else if default_app.contains("zathura") {
+        if Command::new("zathura")
+            .arg("-P")
+            .arg(page.to_string())
+            .arg(path)
+            .spawn()
+            .is_ok()
+        {
+            return Ok(true);
+        }
+    } else if default_app.contains("qpdfview") {
+        if Command::new("qpdfview")
+            .arg(format!("{}#{}", path, page))
+            .spawn()
+            .is_ok()
+        {
+            return Ok(true);
+        }
+    } else if default_app.contains("mupdf") {
+        if Command::new("mupdf")
+            .arg(path)
+            .arg(page.to_string())
+            .spawn()
+            .is_ok()
+        {
+            return Ok(true);
+        }
+    } else if default_app.contains("chrome")
+        || default_app.contains("chromium")
+        || default_app.contains("brave")
+        || default_app.contains("firefox")
+        || default_app.contains("edge")
+    {
+        let browser = if default_app.contains("chrome") {
+            "google-chrome"
+        } else if default_app.contains("chromium") {
+            "chromium-browser"
+        } else if default_app.contains("brave") {
+            "brave-browser"
+        } else if default_app.contains("firefox") {
+            "firefox"
+        } else {
+            "microsoft-edge"
+        };
+        let file_url = format!("file://{}#page={}", path, page);
+        if Command::new(browser).arg(&file_url).spawn().is_ok() {
+            return Ok(true);
+        }
+    }
+
+    // 3. Fallback: try common PDF viewers installed in system PATH
+    for (viewer, flag) in [
+        ("evince", "-i"),
+        ("okular", "-p"),
+        ("atril", "-p"),
+        ("zathura", "-P"),
+    ] {
+        if Command::new(viewer)
+            .arg(flag)
+            .arg(page.to_string())
+            .arg(path)
+            .spawn()
+            .is_ok()
+        {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
 #[tauri::command]
-pub async fn open_result(path: String) -> Result<()> {
+pub async fn open_result(path: String, page: Option<i32>) -> Result<()> {
     let p = Path::new(&path);
     if !p.exists() {
         return Err(SiftError::PathNotFound(path));
     }
 
-    // Trusted OS open via xdg-open on Ubuntu Linux
+    let ext = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    // If opening a PDF at a specific quoted page >= 1, launch viewer at exact page
+    if ext == "pdf" {
+        if let Some(target_page) = page.filter(|&pg| pg >= 1) {
+            if let Ok(true) = open_pdf_at_page(&path, target_page) {
+                return Ok(());
+            }
+        }
+    }
+
+    // Default trusted OS open via xdg-open on Ubuntu Linux
     Command::new("xdg-open")
         .arg(&path)
         .spawn()
