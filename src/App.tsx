@@ -3,6 +3,7 @@ import { SearchBar, type SearchFilter } from "./components/SearchBar";
 import { ResultsList } from "./components/ResultsList";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { StatusBar } from "./components/StatusBar";
+import { ActionMenu } from "./components/ActionMenu";
 import { SetupPage } from "./pages/SetupPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SiftAPI } from "./services/tauriClient";
@@ -22,9 +23,10 @@ export const App: React.FC = () => {
   const [isSearching, setIsSearching] = useState(false);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
 
-  // Modal sheets
+  // Modal sheets & action menu
   const [isFoldersOpen, setIsFoldersOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
   const [indexStatus, setIndexStatus] = useState<IndexStatus | null>(null);
 
   // Fetch status
@@ -185,8 +187,20 @@ export const App: React.FC = () => {
         return;
       }
 
-      // Escape handling: closes sheets -> clears query -> hides window (Shift+Esc hides instantly)
+      // Quick Action Menu toggle via Ctrl+K
+      if (e.ctrlKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setIsActionMenuOpen((prev) => !prev);
+        return;
+      }
+
+      // Escape handling: closes sheets/action menu -> clears query -> hides window
       if (e.key === "Escape") {
+        if (isActionMenuOpen) {
+          setIsActionMenuOpen(false);
+          e.preventDefault();
+          return;
+        }
         if (isFoldersOpen) {
           setIsFoldersOpen(false);
           e.preventDefault();
@@ -225,6 +239,13 @@ export const App: React.FC = () => {
       if (e.ctrlKey && e.key.toLowerCase() === "r" && selectedItem) {
         e.preventDefault();
         SiftAPI.revealResult(selectedItem.path);
+        return;
+      }
+
+      // Ctrl+T opens in terminal
+      if (e.ctrlKey && e.key.toLowerCase() === "t" && selectedItem) {
+        e.preventDefault();
+        SiftAPI.openInTerminal(selectedItem.path);
         return;
       }
 
@@ -294,6 +315,20 @@ export const App: React.FC = () => {
         isSettingsOpen={isSettingsOpen}
         showPreview={showPreview}
         onTogglePreview={() => setShowPreview((prev) => !prev)}
+        onOpenActionMenu={() => setIsActionMenuOpen((prev) => !prev)}
+        isActionMenuOpen={isActionMenuOpen}
+      />
+
+      {/* Quick Action Palette Modal (Ctrl+K) */}
+      <ActionMenu
+        isOpen={isActionMenuOpen}
+        onClose={() => setIsActionMenuOpen(false)}
+        item={selectedItem}
+        previewContent={preview?.preview_content || preview?.snippet}
+        showPreview={showPreview}
+        onTogglePreview={() => setShowPreview((prev) => !prev)}
+        onOpenFolders={() => setIsFoldersOpen(true)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       {/* Modal Sheets for Folders and Preferences */}

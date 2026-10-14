@@ -12,6 +12,8 @@ interface StatusBarProps {
   isSettingsOpen: boolean;
   showPreview: boolean;
   onTogglePreview: () => void;
+  onOpenActionMenu?: () => void;
+  isActionMenuOpen?: boolean;
 }
 
 export const StatusBar: React.FC<StatusBarProps> = ({
@@ -23,6 +25,8 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   isSettingsOpen,
   showPreview,
   onTogglePreview,
+  onOpenActionMenu,
+  isActionMenuOpen,
 }) => {
   const isBusy = status?.is_indexing || status?.is_scanning;
 
@@ -110,6 +114,17 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           <Sliders size={13} color="var(--accent-violet-light)" />
           <span>Settings</span>
         </button>
+
+        {onOpenActionMenu && (
+          <button
+            className={`action-icon-btn action-pill-btn ${isActionMenuOpen ? "active" : ""}`}
+            onClick={onOpenActionMenu}
+            title="Quick Actions Palette (Ctrl+K)"
+          >
+            <span className="keycap keycap-action">Ctrl+K</span>
+            <span>Actions</span>
+          </button>
+        )}
       </div>
     </footer>
   );

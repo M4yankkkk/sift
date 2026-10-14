@@ -94,6 +94,7 @@ pub fn run() {
             preview_result,
             open_result,
             reveal_result,
+            open_in_terminal,
             get_settings,
             set_settings,
             hide_window

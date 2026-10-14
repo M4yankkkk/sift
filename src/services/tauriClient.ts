@@ -151,6 +151,14 @@ export const SiftAPI = {
     return invoke<void>("reveal_result", { path });
   },
 
+  openInTerminal: async (path: string): Promise<void> => {
+    if (!isTauriEnvironment()) {
+      console.log("[Mock] Opening in terminal:", path);
+      return;
+    }
+    return invoke<void>("open_in_terminal", { path });
+  },
+
   // Settings
   getSettings: async (): Promise<AppSettings> => {
     if (!isTauriEnvironment()) {

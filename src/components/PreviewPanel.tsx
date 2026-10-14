@@ -11,8 +11,10 @@ import {
   Copy,
   Check,
   Zap,
+  Terminal,
 } from "lucide-react";
 import { SiftAPI } from "../services/tauriClient";
+import { SyntaxHighlighter } from "./SyntaxHighlighter";
 
 interface PreviewPanelProps {
   item: SearchResultItem | null;
@@ -51,6 +53,10 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
 
   const handleReveal = () => {
     SiftAPI.revealResult(item.path);
+  };
+
+  const handleTerminal = () => {
+    SiftAPI.openInTerminal(item.path);
   };
 
   const handleCopyPath = () => {
@@ -289,18 +295,25 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
       );
     }
 
-    // 4. Text / Code / Markdown
+    // 4. Text / Code / Markdown / Config
     const lines = preview.preview_content.split("\n");
-    const isCode = preview.mime_type === "text/code" || ["rs", "ts", "tsx", "js", "py", "json", "toml", "yaml", "go", "cpp", "c"].includes(ext);
+    const isCode =
+      preview.mime_type === "text/code" ||
+      ["rs", "ts", "tsx", "js", "jsx", "py", "json", "toml", "yaml", "yml", "go", "cpp", "c", "h", "hpp", "sh", "bash", "sql", "html", "css", "md", "txt", "log"].includes(ext);
 
     return (
       <div className="preview-text-wrapper">
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 6 }}>
+            <span>{lines.length} lines</span>
+            <span>•</span>
+            <span style={{ textTransform: "uppercase" }}>{item.extension || "plain"}</span>
+          </div>
           <button
             className={`btn-copy ${copiedContent ? "copied" : ""}`}
             onClick={() => handleCopyContent(preview.preview_content)}
             style={{ padding: "3px 8px", fontSize: 11 }}
-            title="Copy file contents"
+            title="Copy file contents (Ctrl+Shift+C)"
           >
             {copiedContent ? <Check size={11} /> : <Copy size={11} />}
             <span>{copiedContent ? "Copied" : "Copy Content"}</span>
@@ -308,18 +321,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
         </div>
 
         {isCode ? (
-          <div className="code-preview-layout">
-            <div className="code-gutter">
-              {lines.map((_, i) => (
-                <div key={i} className="gutter-line-number">
-                  {i + 1}
-                </div>
-              ))}
-            </div>
-            <div className="code-body">
-              {preview.preview_content}
-            </div>
-          </div>
+          <SyntaxHighlighter code={preview.preview_content} extension={item.extension} />
         ) : (
           <div className="preview-code-block">
             {preview.preview_content}
@@ -351,7 +353,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
           <button
             className={`btn-copy ${copiedPath ? "copied" : ""}`}
             onClick={handleCopyPath}
-            title="Copy absolute file path"
+            title="Copy absolute file path (Ctrl+C)"
           >
             {copiedPath ? <Check size={13} /> : <Copy size={13} />}
             <span>{copiedPath ? "Copied" : "Path"}</span>
@@ -363,6 +365,14 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
           >
             <FolderOpen size={13} />
             <span>Reveal</span>
+          </button>
+          <button
+            className="btn-reveal"
+            onClick={handleTerminal}
+            title="Open folder in terminal (Ctrl+T)"
+          >
+            <Terminal size={13} />
+            <span>Terminal</span>
           </button>
           <button
             className="btn-open"

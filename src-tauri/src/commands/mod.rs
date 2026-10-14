@@ -317,6 +317,57 @@ pub async fn reveal_result(path: String) -> Result<()> {
 }
 
 #[tauri::command]
+pub async fn open_in_terminal(path: String) -> Result<()> {
+    let p = Path::new(&path);
+    if !p.exists() {
+        return Err(SiftError::PathNotFound(path));
+    }
+
+    let dir = if p.is_dir() { p } else { p.parent().unwrap_or(p) };
+    let dir_str = dir.to_string_lossy().to_string();
+
+    // 1. Try $TERMINAL if set
+    if let Ok(term) = std::env::var("TERMINAL") {
+        if Command::new(&term).current_dir(dir).spawn().is_ok() {
+            return Ok(());
+        }
+    }
+
+    // 2. Try gnome-terminal
+    if Command::new("gnome-terminal")
+        .arg(format!("--working-directory={}", dir_str))
+        .spawn()
+        .is_ok()
+    {
+        return Ok(());
+    }
+
+    // 3. Try x-terminal-emulator
+    if Command::new("x-terminal-emulator")
+        .current_dir(dir)
+        .spawn()
+        .is_ok()
+    {
+        return Ok(());
+    }
+
+    // 4. Try other common Linux terminal emulators
+    for term in &["ptyxis", "alacritty", "kitty", "konsole", "xterm"] {
+        if Command::new(term).current_dir(dir).spawn().is_ok() {
+            return Ok(());
+        }
+    }
+
+    // 5. Fallback: reveal parent in default file manager
+    Command::new("xdg-open")
+        .arg(dir)
+        .spawn()
+        .map_err(SiftError::Io)?;
+
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn get_settings(state: State<'_, AppState>) -> Result<AppSettings> {
     state.db.get_settings()
 }

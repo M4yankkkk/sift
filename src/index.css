@@ -1228,3 +1228,321 @@ html, body {
 .switch-track.active .switch-thumb {
   transform: translateX(16px);
 }
+
+/* ==========================================================================
+   Action Menu Modal (Raycast-Style Ctrl+K Quick Action Palette)
+   ========================================================================== */
+.action-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(8, 10, 16, 0.65);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.action-menu-dialog {
+  width: 90%;
+  max-width: 520px;
+  background: #111420;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(129, 140, 248, 0.15);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: slideUpSubtle 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.action-menu-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.02);
+  gap: 8px;
+}
+
+.action-menu-search-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.action-menu-search-icon {
+  color: var(--accent-violet-light);
+  flex-shrink: 0;
+}
+
+.action-menu-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 450;
+}
+
+.action-menu-input::placeholder {
+  color: var(--text-muted);
+}
+
+.action-menu-close-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s ease;
+}
+
+.action-menu-close-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.action-menu-target-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: rgba(0, 0, 0, 0.25);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  font-size: 11px;
+}
+
+.action-menu-target-badge {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(129, 140, 248, 0.18);
+  color: var(--accent-violet-light);
+  letter-spacing: 0.5px;
+}
+
+.action-menu-target-path {
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+}
+
+.action-menu-list {
+  padding: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.action-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  user-select: none;
+}
+
+.action-menu-item:hover,
+.action-menu-item.selected {
+  background: rgba(129, 140, 248, 0.15);
+  box-shadow: inset 0 0 0 1px rgba(129, 140, 248, 0.3);
+}
+
+.action-item-icon-box {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.12s ease;
+}
+
+.action-menu-item.selected .action-item-icon-box {
+  background: rgba(129, 140, 248, 0.25);
+}
+
+.action-item-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.action-item-title {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.action-item-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.action-item-keycap {
+  font-size: 10.5px;
+  padding: 2px 6px;
+}
+
+.action-menu-empty {
+  padding: 24px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.action-menu-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border-subtle);
+  background: rgba(0, 0, 0, 0.2);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.keycap-subtle {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+}
+
+/* ==========================================================================
+   StatusBar Action Pill Trigger
+   ========================================================================== */
+.action-pill-btn {
+  background: rgba(129, 140, 248, 0.12) !important;
+  border: 1px solid rgba(129, 140, 248, 0.3) !important;
+  color: #c7d2fe !important;
+  padding: 2px 8px !important;
+  gap: 5px !important;
+  box-shadow: 0 0 10px rgba(129, 140, 248, 0.15);
+}
+
+.action-pill-btn:hover,
+.action-pill-btn.active {
+  background: rgba(129, 140, 248, 0.22) !important;
+  border-color: rgba(129, 140, 248, 0.55) !important;
+  color: #fff !important;
+  box-shadow: 0 0 14px rgba(129, 140, 248, 0.35);
+}
+
+.keycap-action {
+  background: rgba(129, 140, 248, 0.25) !important;
+  border-color: rgba(129, 140, 248, 0.4) !important;
+  color: #e0e7ff !important;
+}
+
+/* ==========================================================================
+   Syntax Highlighter Styles (VS Code / JetBrains Dark Theme)
+   ========================================================================== */
+.syntax-code-container {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  background: #0d1017;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.syntax-code-table {
+  display: table;
+  width: 100%;
+  min-width: 100%;
+  border-collapse: collapse;
+}
+
+.syntax-line-row {
+  display: table-row;
+  transition: background 0.1s ease;
+}
+
+.syntax-line-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.syntax-line-num {
+  display: table-cell;
+  width: 44px;
+  min-width: 44px;
+  padding: 0 12px 0 8px;
+  text-align: right;
+  color: #4b5563;
+  user-select: none;
+  font-size: 11px;
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.15);
+  vertical-align: top;
+}
+
+.syntax-line-content {
+  display: table-cell;
+  padding: 0 14px;
+  white-space: pre;
+  color: #e2e8f0;
+  vertical-align: top;
+}
+
+/* Syntax Token Highlighting Colors */
+.syn-keyword {
+  color: #c084fc; /* Vibrant purple */
+  font-weight: 500;
+}
+
+.syn-type {
+  color: #38bdf8; /* Sky blue / Cyan */
+  font-weight: 500;
+}
+
+.syn-string {
+  color: #34d399; /* Emerald green */
+}
+
+.syn-comment {
+  color: #64748b; /* Muted slate */
+  font-style: italic;
+}
+
+.syn-number {
+  color: #fbbf24; /* Warm amber */
+}
+
+.syn-boolean {
+  color: #fb7185; /* Rose coral */
+  font-weight: 500;
+}
+
+.syn-function {
+  color: #818cf8; /* Indigo blue */
+}
+
