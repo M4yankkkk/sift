@@ -773,12 +773,17 @@ impl Database {
                 continue;
             }
 
+            // Exclude short garbage OCR snippets (< 3 bytes) from vector semantic matching
+            if modality == "ocr" && snippet.trim().len() < 3 {
+                continue;
+            }
+
             let vec = crate::embeddings::deserialize_vector(&blob);
             let sim = crate::embeddings::cosine_similarity(query_vec, &vec);
-            let threshold = if is_image { 0.235 } else { 0.30 };
+            let threshold = if is_image { 0.22 } else { 0.30 };
             if sim >= threshold {
                 let calibrated_score = if is_image {
-                    0.50 + ((sim - 0.235) / 0.12).min(1.0).max(0.0) * 0.40
+                    0.55 + ((sim - 0.22) / 0.06).min(1.0).max(0.0) * 0.40
                 } else {
                     0.50 + ((sim - 0.30) / 0.18).min(1.0).max(0.0) * 0.40
                 };
@@ -865,9 +870,27 @@ impl Database {
                     }
                 }
             }
+            let is_visual_q = is_visual_intent(q_trimmed);
+
+            // If visual query, dampen non-visual text hits so they don't crowd out visual images
+            if is_visual_q {
+                for h in &mut hits {
+                    h.score *= 0.60;
+                }
+            }
+
             // 3b. Search visual image chunks with cross-modal vision query vector
             if let Ok(vision_q_vec) = engine.embed_vision_query(q_trimmed) {
-                if let Ok(img_hits) = self.search_vectors_by_modality(&vision_q_vec, limit, Some(true)) {
+                if let Ok(mut img_hits) = self.search_vectors_by_modality(&vision_q_vec, limit, Some(true)) {
+                    if is_visual_q {
+                        for h in &mut img_hits {
+                            h.score = (h.score * 1.25).min(0.99);
+                        }
+                    } else {
+                        for h in &mut img_hits {
+                            h.score *= 0.60;
+                        }
+                    }
                     hits.extend(img_hits);
                 }
             }
@@ -1055,18 +1078,6 @@ impl Database {
         }
 
         let mut results: Vec<SearchResultItem> = merged.into_values().collect();
-
-        let is_visual_q = is_visual_intent(q_trimmed);
-
-        // If query is not explicitly visual, penalize pure visual image hits so they do not crowd out code, documents, and notes
-        if !is_visual_q {
-            for r in &mut results {
-                let is_pure_visual = r.match_reasons.iter().any(|m| m.contains("Visual semantic")) && r.match_type != MatchType::Ocr;
-                if is_pure_visual {
-                    r.score *= 0.70;
-                }
-            }
-        }
 
         // Sort by score descending, then filename length
         results.sort_by(|a, b| {
