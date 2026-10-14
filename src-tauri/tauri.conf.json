@@ -14,9 +14,9 @@
       {
         "label": "main",
         "title": "Sift",
-        "width": 920,
+        "width": 1040,
         "height": 600,
-        "minWidth": 720,
+        "minWidth": 840,
         "minHeight": 440,
         "resizable": true,
         "fullscreen": false,

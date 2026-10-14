@@ -1044,12 +1044,23 @@ html, body {
   color: var(--text-muted);
   position: relative;
   z-index: 5;
+  gap: 12px;
+  overflow: hidden;
 }
 
 .index-status-indicator {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  flex-shrink: 1;
+  white-space: nowrap;
+}
+
+.index-status-indicator > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .indicator-dot {
@@ -1084,13 +1095,17 @@ html, body {
 .keycap-shortcuts {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .keycap-group {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .keycap {
@@ -1102,6 +1117,7 @@ html, body {
   padding: 2px 6px;
   border-radius: var(--radius-xs);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05);
+  flex-shrink: 0;
 }
 
 .action-icon-btn {
@@ -1117,6 +1133,8 @@ html, body {
   font-family: var(--font-sans);
   font-size: 11px;
   transition: all 0.15s ease;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .action-icon-btn:hover {
@@ -1445,6 +1463,8 @@ html, body {
   padding: 2px 8px !important;
   gap: 5px !important;
   box-shadow: 0 0 10px rgba(129, 140, 248, 0.15);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .action-pill-btn:hover,
