@@ -725,7 +725,7 @@ impl Database {
         let query_sql = match is_image_only {
             Some(true) => {
                 r#"
-                SELECT e.file_id, f.path, f.filename, e.modality, e.snippet, e.page_number, e.embedding
+                SELECT e.file_id, f.path, f.filename, e.modality, e.snippet, e.page_number, e.embedding, f.size_bytes
                 FROM chunk_embeddings e
                 JOIN files f ON e.file_id = f.id
                 WHERE f.is_deleted = 0 AND e.modality = 'image'
@@ -733,7 +733,7 @@ impl Database {
             }
             Some(false) => {
                 r#"
-                SELECT e.file_id, f.path, f.filename, e.modality, e.snippet, e.page_number, e.embedding
+                SELECT e.file_id, f.path, f.filename, e.modality, e.snippet, e.page_number, e.embedding, f.size_bytes
                 FROM chunk_embeddings e
                 JOIN files f ON e.file_id = f.id
                 WHERE f.is_deleted = 0 AND e.modality != 'image'
@@ -741,7 +741,7 @@ impl Database {
             }
             None => {
                 r#"
-                SELECT e.file_id, f.path, f.filename, e.modality, e.snippet, e.page_number, e.embedding
+                SELECT e.file_id, f.path, f.filename, e.modality, e.snippet, e.page_number, e.embedding, f.size_bytes
                 FROM chunk_embeddings e
                 JOIN files f ON e.file_id = f.id
                 WHERE f.is_deleted = 0
@@ -761,19 +761,32 @@ impl Database {
             let snippet: String = row.get(4)?;
             let page_number: Option<i32> = row.get(5)?;
             let blob: Vec<u8> = row.get(6)?;
+            let size_bytes: i64 = row.get(7)?;
+
+            let is_image = modality == "image";
+            // Ignore corrupted or empty files (< 32 bytes)
+            if size_bytes < 32 {
+                continue;
+            }
 
             let vec = crate::embeddings::deserialize_vector(&blob);
             let sim = crate::embeddings::cosine_similarity(query_vec, &vec);
-            let threshold = if modality == "image" { 0.30 } else { 0.24 };
-            if sim > threshold {
+            let threshold = if is_image { 0.20 } else { 0.22 };
+            if sim >= threshold {
+                let calibrated_score = if is_image {
+                    0.50 + ((sim - 0.20) / 0.12).min(1.0).max(0.0) * 0.40
+                } else {
+                    0.45 + ((sim - 0.22) / 0.22).min(1.0).max(0.0) * 0.45
+                };
+
                 match best_by_file.entry(file_id.clone()) {
                     std::collections::hash_map::Entry::Occupied(mut occ) => {
-                        if sim > occ.get().score {
+                        if calibrated_score > occ.get().score {
                             occ.insert(VectorSearchResult {
                                 file_id,
                                 path,
                                 filename,
-                                score: sim,
+                                score: calibrated_score,
                                 modality,
                                 snippet,
                                 page_number,
@@ -785,7 +798,7 @@ impl Database {
                             file_id,
                             path,
                             filename,
-                            score: sim,
+                            score: calibrated_score,
                             modality,
                             snippet,
                             page_number,
@@ -934,7 +947,7 @@ impl Database {
                             extension: file_rec.extension,
                             size_bytes: file_rec.size_bytes,
                             modified_at: file_rec.modified_at,
-                            score: 0.55 + (hit.score.min(10.0) / 25.0),
+                            score: 0.65 + (hit.score.min(10.0) / 30.0),
                             match_type,
                             match_reasons: vec![format!("Full-text match ({})", provenance)],
                             snippet: Some(hit.snippet),
@@ -981,23 +994,39 @@ impl Database {
                     if file_rec.is_deleted {
                         continue;
                     }
+                    let is_ocr = hit.modality == "ocr";
+                    let match_type = if is_ocr {
+                        MatchType::Ocr
+                    } else {
+                        MatchType::Semantic
+                    };
+
                     let (reason, snippet, score) = if is_visual {
                         (
                             format!(
-                                "Visual semantic match ({:.0}% similarity)",
+                                "Visual semantic match ({:.0}% relevance)",
                                 hit.score * 100.0
                             ),
                             Some(format!("Visual contents match \"{}\"", q_trimmed)),
-                            (0.40 + (hit.score * 0.45)).min(1.0),
+                            hit.score,
+                        )
+                    } else if is_ocr {
+                        (
+                            format!(
+                                "OCR text match ({:.0}% relevance)",
+                                hit.score * 100.0
+                            ),
+                            Some(hit.snippet),
+                            hit.score,
                         )
                     } else {
                         (
                             format!(
-                                "Semantic concept match ({:.0}% similarity)",
+                                "Semantic concept match ({:.0}% relevance)",
                                 hit.score * 100.0
                             ),
                             Some(hit.snippet),
-                            (0.45 + (hit.score * 0.50)).min(1.0),
+                            hit.score,
                         )
                     };
 
@@ -1011,7 +1040,7 @@ impl Database {
                             size_bytes: file_rec.size_bytes,
                             modified_at: file_rec.modified_at,
                             score,
-                            match_type: MatchType::Semantic,
+                            match_type,
                             match_reasons: vec![reason],
                             snippet,
                             page_number: hit.page_number,
