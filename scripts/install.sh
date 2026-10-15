@@ -13,7 +13,7 @@ NC='\033[0m' # No Color
 echo -e "${BLUE}${BOLD}==> Installing Sift for Production...${NC}"
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEB_DIR="$PROJECT_DIR/src-tauri/target/release/bundle/deb"
+DEB_DIR="$PROJECT_DIR/target/release/bundle/deb"
 
 # 1. Check if binary or deb exists; build if needed
 DEB_FILE=$(find "$DEB_DIR" -name "*.deb" 2>/dev/null | head -n 1 || true)
@@ -30,7 +30,7 @@ if [ -n "$DEB_FILE" ]; then
     sudo apt install -y "$DEB_FILE"
 else
     echo -e "${YELLOW}==> Deb package not found. Installing standalone binary to /usr/local/bin/sift...${NC}"
-    RELEASE_BIN="$PROJECT_DIR/src-tauri/target/release/sift-tauri"
+    RELEASE_BIN="$PROJECT_DIR/target/release/sift-tauri"
     if [ ! -f "$RELEASE_BIN" ]; then
         cargo build --release --manifest-path "$PROJECT_DIR/src-tauri/Cargo.toml"
     fi
@@ -42,6 +42,12 @@ fi
 if ! command -v tesseract &>/dev/null; then
     echo -e "${BLUE}==> Installing Tesseract OCR engine...${NC}"
     sudo apt install -y tesseract-ocr tesseract-ocr-eng
+fi
+
+# PDF text extraction (pdftotext) and page previews (pdftoppm)
+if ! command -v pdftotext &>/dev/null || ! command -v pdftoppm &>/dev/null; then
+    echo -e "${BLUE}==> Installing poppler-utils for PDF support...${NC}"
+    sudo apt install -y poppler-utils
 fi
 
 # 3. Configure Login Autostart (~/.config/autostart/sift.desktop)

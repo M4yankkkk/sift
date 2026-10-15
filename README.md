@@ -1,201 +1,156 @@
 <div align="center">
 
-# ⚡ Sift
+# Sift
 
-### Raycast-style neural file search for the Linux desktop, written in 100% Rust.
-**Powered by Google DeepMind's EmbeddingGemma 2, Tantivy BM25, and On-Device OCR.**
+### Find files on Linux by what's in them.
 
-[![Rust 2021](https://img.shields.io/badge/Rust-2021_Edition-orange?logo=rust&logoColor=white)](https://www.rust-lang.org/)
-[![Model](https://img.shields.io/badge/Model-Google_EmbeddingGemma_2-4285F4?logo=google&logoColor=white)](https://huggingface.co/google/embedding-gemma-2-onnx)
-[![Search Core](https://img.shields.io/badge/Search-Tantivy_BM25_+_ONNX-8A2BE2)](https://github.com/quickwit-oss/tantivy)
-[![Desktop](https://img.shields.io/badge/Desktop-Linux_Wayland_%26_X11-E95420?logo=ubuntu&logoColor=white)](https://ubuntu.com/)
-[![Latency](https://img.shields.io/badge/Warm_Query-<0.52ms-10B981?logo=speedtest&logoColor=white)](benchmarks/)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+A keyboard-first desktop launcher that searches your photos, screenshots, PDFs, notes, and code by meaning, by exact text, and by the words inside images. It runs entirely on your machine, with Google DeepMind's **EmbeddingGemma 2** and a Rust core.
 
-*100% local. Zero cloud APIs. Zero telemetry. Sub-millisecond latency.*
+[![Rust](https://img.shields.io/badge/core-Rust-orange?logo=rust&logoColor=white)](crates/sift-core)
+[![Model](https://img.shields.io/badge/model-EmbeddingGemma_2-4285F4?logo=google&logoColor=white)](https://huggingface.co/google/embeddinggemma-2)
+[![Search](https://img.shields.io/badge/keyword-Tantivy_BM25-8A2BE2)](https://github.com/quickwit-oss/tantivy)
+[![Platform](https://img.shields.io/badge/platform-Linux_(X11_%26_Wayland)-E95420?logo=linux&logoColor=white)](#install)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
----
+<!-- Demo: add docs/demo.gif here after recording -->
 
 </div>
 
-## 💡 The Story: Why Sift?
-
-When **[DigUp](https://github.com/ARahim3/DigUp)** went viral on X showcasing Google DeepMind’s **EmbeddingGemma 2**, it proved how transformative local neural search is on modern laptops. But DigUp was strictly macOS-only.
-
-Linux desktop users were left with outdated tools: grep/fzf for terminals, or slow file managers that choke on conceptual queries like *"spreadsheet of travel receipts"* or *"curl command for auth token"*.
-
-**Sift is the native Linux answer:**
-- **100% Rust Core**: Zero garbage collection pauses, ultra-low memory (~15MB idle), and instant CPU/GPU inference via ONNX Runtime.
-- **Hybrid RRF Fusion**: Combines Tantivy BM25 full-text keyword indexing with DeepMind's EmbeddingGemma 2 (768-dim) using Reciprocal Rank Fusion ($k=60$). You never miss exact code symbols while enjoying fuzzy conceptual discovery.
-- **On-Device OCR & Bounding Boxes**: Reads screenshots, receipts, and photos locally via Tesseract, visualizing recognized text with interactive bounding box overlays.
-- **Raycast-Grade UX**: Floating desktop launcher, instant global hotkey, `Ctrl+K` quick actions menu, terminal integration, and syntax-highlighted code preview.
-
 ---
 
-## ✨ Key Features
+## What it does
 
-| Feature | Description |
+Press `Ctrl+Alt+Space` anywhere and type what you remember:
+
+| You type | Sift finds |
 | :--- | :--- |
-| 🧠 **Neural Semantic Search** | Understands concepts, intent, and paraphrased descriptions using Google DeepMind's **EmbeddingGemma 2** running locally via ONNX Runtime. |
-| ⚡ **Tantivy BM25 Full-Text** | Blazing-fast exact phrase, trigram, and token search across source code, Markdown, PDF text, and config files. |
-| 🎯 **Hybrid RRF Ranking** | Reciprocal Rank Fusion seamlessly merges keyword hits and vector dot-products so exact matches rank #1 without false positives. |
-| 👁️ **Visual OCR with Bounding Boxes** | Extracts text from screenshots, memes, and photos with interactive bounding boxes rendered directly on top of the image preview. |
-| ⌨️ **Raycast-Style `Ctrl+K` Actions** | Press `Ctrl+K` for instant actions: Open file, Reveal in Files, Open Terminal in directory, Copy Path, or Copy Content. |
-| 🎨 **Syntax-Highlighted Preview** | Live syntax highlighting for Rust, Python, TypeScript, JSON, TOML, Shell, and C/C++ with line numbering gutter. |
-| 🐧 **Native Wayland & X11 Daemon** | Binds via GNOME media-keys settings daemon + local Unix domain socket (`/run/user/$UID/sift.sock`) for instant toggle. |
-| ⚡ **Smart Incremental Fingerprinting** | Fingerprints 98,000+ files/sec using `(mtime, size)` hashes. Unchanged files are never re-embedded or re-scanned. |
-| 🔒 **100% Private & Air-Gapped** | Runs completely offline on your hardware. No telemetry, no network calls, no cloud tracking. |
+| `sunset` | the sunset photo in `~/Documents/images (1).jpeg`, which is not in the filename |
+| `country` | a poster of India's map made of people |
+| `error message` | a screenshot of a crash dialog, matched by what's in the picture *and* its OCR text |
+| `database retry` | the distributed-systems notes PDF that explains retries, plus your SQL schema |
+| `resume pdf` | only your résumé PDFs, with duplicate copies folded into one result |
+| `"exact phrase"` / `ERR_0x1A4` | exact keyword hits ranked first, with highlighted snippets |
 
----
+Everything happens locally. After a one-time model download (≈435 MB), Sift makes no network requests.
 
-## 🏛️ Architecture
+## Why
 
-```mermaid
-flowchart TD
-    subgraph Host["Linux Host (Wayland / X11)"]
-        FS[("User Directories (~/Documents, ~/Downloads)")]
-        Notify["Inotify File Watcher"]
-        GNOME["Global Shortcut (Ctrl+Alt+Space / Super)"]
-        Socket["Unix Domain Socket (/run/user/$UID/sift.sock)"]
-    end
+[DigUp](https://github.com/ARahim3/DigUp) showed how good local "search by meaning" feels with EmbeddingGemma 2, and Google's Gemma team featured it. Sift explores the same idea with a Linux-first, Rust-native design:
 
-    subgraph SiftCore["Sift Rust Core (sift-core)"]
-        Scanner["Incremental Scanner (mtime + size fingerprinting)"]
-        Extract["Extractor (PDF poppler / Tesseract OCR / Plain Text)"]
-        Tantivy["Tantivy BM25 Full-Text Engine"]
-        FastEmbed["ONNX EmbeddingGemma 2 (768-dim)"]
-        SQLite[("SQLite 3 (WAL mode + Inverted & Vector Indices)")]
-        RRF["Reciprocal Rank Fusion (k=60)"]
-    end
+- **One process, no runtime to install.** The model runs in-process on ONNX Runtime from Rust. There is no Python, Node, or llama.cpp sidecar.
+- **Three kinds of search fused into one list:** meaning (EmbeddingGemma 2), exact keywords (Tantivy BM25), and the text inside images (Tesseract OCR, with word boxes drawn on the preview).
+- **A launcher, not a window:** a global hotkey, `Ctrl+K` actions, an instant preview, and PDFs that open at the matching page.
 
-    subgraph DesktopUI["Sift Desktop Launcher (Tauri 2 + WebKitGTK)"]
-        Input["SearchBar (Instant debounced streaming)"]
-        Results["Results List (Keyboard navigable)"]
-        Preview["Preview Panel (Syntax Highlighting + OCR Bounding Boxes)"]
-        Actions["Quick Action Palette (Ctrl+K)"]
-    end
+DigUp also indexes audio and video and runs on macOS, with Windows and Linux betas. Sift doesn't handle audio or video yet; see [Limitations](#limitations).
 
-    FS --> Scanner
-    Notify --> Scanner
-    Scanner --> Extract
-    Extract --> Tantivy
-    Extract --> FastEmbed
-    Tantivy --> SQLite
-    FastEmbed --> SQLite
-    GNOME --> Socket
-    Socket --> DesktopUI
-    Input --> RRF
-    SQLite --> RRF
-    RRF --> Results
-    Results --> Preview
-    Results --> Actions
-```
+## How search works
 
----
+Each query runs four retrievers once, then fuses them:
 
-## 📊 Performance Benchmarks
+1. **Filenames** (SQLite). Whole-word matches count as strong evidence, substrings inside words as weak.
+2. **Keywords** (Tantivy BM25). Every word must match first; if nothing does, Sift falls back to any word and drops weak hits.
+3. **Text meaning.** EmbeddingGemma 2 embeds document chunks and OCR text, prefixed with `title: … | text: …`.
+4. **Image meaning.** EmbeddingGemma 2 embeds photos into the **same 768-d space** as text, so a text query compares directly against pictures.
 
-All benchmarks conducted on a standard Linux workstation (AMD Ryzen 7, 32GB RAM, Ubuntu 24.04 LTS):
+**Per-query relevance gates instead of fixed cut-offs.** Cosine similarities drift with every query, so a fixed threshold either floods results or hides them. Sift scores a query against the whole index and keeps only results that stand out from that query's own distribution. These thresholds were calibrated on a real index: genuine image matches landed 4–6σ above the query's mean (`sunset` 5.9σ, `dog` 6.4σ), and queries with no matching photo topped out near 3σ.
 
-| Metric | Sift (Linux Native) | DigUp (macOS) | Spotlight (macOS) | Recoll (Linux) | Ripgrep / FZF |
-| :--- | :---: | :---: | :---: | :---: | :---: |
-| **Language** | **100% Rust** | Swift / C++ | Objective-C | C++ | Rust (CLI only) |
-| **Warm Search Latency** | **0.52 ms** | ~5-15 ms | ~2-5 ms | ~12 ms | ~40-150 ms |
-| **Indexing Throughput** | **98,400 files/sec** | ~8,000 files/sec | Background | ~15,000 files/sec | N/A (Linear scan) |
-| **Semantic / Neural Search** | **EmbeddingGemma 2** | EmbeddingGemma 2 | ❌ Keyword only | ❌ Keyword only | ❌ Text pattern only |
-| **OCR Image Search** | **Yes (Tesseract + BBoxes)** | Yes | Limited | ❌ No | ❌ No |
-| **Hybrid RRF Ranking** | **Yes (BM25 + Dense)** | Dense only | Keyword only | BM25 only | None |
-| **RAM Footprint (Idle)** | **~15 MB** | ~180 MB | ~90 MB | ~65 MB | N/A |
-| **UI Launcher** | **Raycast-Style Floating** | Spotlight bar | Spotlight bar | Classic Qt GUI | Terminal only |
-| **Platform** | **Linux (Wayland & X11)** | macOS 14+ (M-series) | macOS | Linux | Cross-platform |
+**Fusion.** Weighted reciprocal-rank fusion merges the lists. Each list's weight depends on how clearly it found a winner, so `earth` blends globe photos with documents while `database retry` shows no images at all.
 
----
+**Query intent.**
+- Type words filter results: `sunset photo`, `pic of earth`, `resume pdf`, `slides on transformers`, or the explicit `type:pdf` / `ext:png`. A subject word like "sunset" is never treated as a filter.
+- Identifier-shaped queries (`snake_case`, `CamelCase`, `foo.rs`) favour code over images.
 
-## 🚀 Quick Install
+**Noise control.** Theme assets, icon sprites, and tiny images rank lower. OCR fragments without real words are left out of meaning search, though keyword search still covers them. Identical copies collapse into one result marked "+N identical copies elsewhere".
 
-### Option 1: One-Line Turnkey Installer (Recommended for Ubuntu/Debian)
+The filter chips (`All · Filename · Content · Visual`) show how many results each mode has for the current query.
 
-Run the automated installer script to fetch dependencies, register systemd daemon, and configure GNOME shortcuts:
+## Measured performance
+
+All numbers below are from one laptop: Intel i7-13620H (10 cores), 16 GB RAM, Ubuntu 24.04, CPU only. The index holds 5,471 files: 670 photos and screenshots, about 12k meaningful text chunks, and PDFs up to 1,300 pages.
+
+| | |
+| :--- | :--- |
+| Search latency (release build) | **72–92 ms** per query, all four retrievers, fused |
+| Search core memory (models loaded, idle) | **≈480 MB** resident |
+| Peak memory while indexing a 1,300-page PDF | ≈0.95 GB |
+| Image indexing (one-time) | ≈0.6 s per image on 8 threads |
+| Model download (first run) | ≈435 MB (q8 text model + q4 vision encoder) |
+| Search-quality regression set (20 graded real queries) | **20 / 20** pass ([`live_index_eval.rs`](crates/sift-core/tests/live_index_eval.rs)) |
+
+Model correctness: Sift's Rust port of the EmbeddingGemma 2 image pipeline reproduces the model card's reference similarities (0.744 vs 0.740 on its cat photo, with 0.460 and 0.497 for the non-matching queries).
+
+## Install
+
+Requirements: Linux with X11 or Wayland (tested on GNOME), Rust 1.75+, Node.js 18+.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/M4yankkkk/sift/main/scripts/install.sh | bash
-```
+# System libraries: WebKitGTK for the UI, Tesseract for OCR, poppler for PDFs
+sudo apt install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+                    tesseract-ocr poppler-utils
 
-### Option 2: Build from Source
-
-#### Prerequisites
-- Rust 1.75+ (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
-- Node.js 18+ and `npm`
-- System libraries:
-  ```bash
-  sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf tesseract-ocr
-  ```
-
-#### Build & Run
-```bash
-# Clone the repository
 git clone https://github.com/M4yankkkk/sift.git
 cd sift
-
-# Install frontend dependencies
 npm install
 
-# Run desktop launcher in development mode
-npm run tauri dev
-
-# Or build optimized release package
-npm run tauri build
+npm run tauri dev       # run in development
+./scripts/install.sh    # or: build a release, install the .deb, enable autostart and a Super+Space shortcut on GNOME
 ```
 
-The compiled binary and `.deb` package will be generated at `target/release/bundle/deb/`.
+On first launch, add folders to index (for example `~/Documents` and `~/Downloads`). Sift downloads EmbeddingGemma 2 once, indexes in the background with progress in the status bar, and then follows file changes live.
 
----
-
-## ⌨️ Keyboard Shortcuts
+## Keyboard
 
 | Shortcut | Action |
 | :--- | :--- |
-| `Ctrl+Alt+Space` | Toggle Sift launcher from anywhere on desktop |
-| `↵` (Enter) | Open selected file with default system application |
-| `Ctrl+R` | Reveal selected file in file manager (Nautilus, Dolphin, etc.) |
-| `Ctrl+T` | Open terminal inside the directory containing the file |
-| `Ctrl+C` | Copy absolute file path to clipboard |
-| `Ctrl+Shift+C` | Copy preview text or recognized OCR snippet |
-| `Ctrl+K` | Open Raycast-style **Quick Actions Palette** |
-| `Tab` | Toggle expandable side preview pane |
-| `Ctrl+,` | Open Preferences & Keybinding settings |
-| `Ctrl+Shift+F` | Manage indexed folders (`~/Documents`, `~/Downloads`, etc.) |
-| `Ctrl+L` | Focus & highlight search input field |
-| `Esc` | Close action modal → Clear search query → Dismiss window |
+| `Ctrl+Alt+Space` | Show / hide Sift (default; change it in Settings) |
+| `↑` `↓` or `Ctrl+N` `Ctrl+P` | Move through results |
+| `Enter` / `Ctrl+O` | Open the file (PDFs open at the matching page) |
+| `Ctrl+R` | Reveal in file manager |
+| `Ctrl+T` | Open a terminal in the file's folder |
+| `Ctrl+K` | Quick actions (open, reveal, terminal, copy path, copy content) |
+| `Tab` | Toggle the preview panel |
+| `Ctrl+L` | Focus the search box |
+| `Ctrl+,` / `Ctrl+Shift+F` | Settings / indexed folders |
+| `Esc` | Close menu → clear query → hide window |
 
----
+## Configuration
 
-## 🔍 How Hybrid Search Works
+| Variable | Effect |
+| :--- | :--- |
+| `SIFT_EMBEDDING_MODEL=legacy` | Use the older text-only EmbeddingGemma + CLIP instead of EmbeddingGemma 2 |
+| `SIFT_EMBED_THREADS=N` | ONNX Runtime threads (default: half your cores, 2–8) |
+| `SIFT_DB_PATH=/path/sift.db` | Index location (default `~/.local/share/sift/`) |
+| `SIFT_CACHE_DIR=/path` | Model cache (default `~/.cache/sift/models`) |
 
-Sift uses a **Reciprocal Rank Fusion (RRF)** scoring formula to merge lexical and semantic retrieval spaces without requiring score calibration:
+Settings also has switches for the semantic engine and OCR, plus Eco / Performance indexing modes.
 
-$$RRF(d) = \sum_{m \in M} \frac{1}{k + r_m(d)}$$
+Changing the embedding model is safe. Every vector records which model produced it, vectors from different models are never compared, and Sift re-embeds outdated files in the background (images first, resumable).
 
-Where:
-- $M = \{\text{BM25}, \text{EmbeddingGemma 2}\}$
-- $k = 60$ (smoothing constant preventing high-rank outliers from monopolizing results)
-- $r_m(d)$ is the rank position of document $d$ within ranking stream $m$
+## Development
 
-1. **Exact Filename & Token Matches**: Tantivy BM25 scores high precision for exact code symbols (e.g., `BuySellMailer`, `generativelanguage.googleapis.com`).
-2. **Conceptual Queries**: DeepMind EmbeddingGemma 2 calculates cosine similarity on 768-dimensional ONNX vectors to discover documents matching the user's intent.
-3. **OCR Match Fusion**: Text extracted from screenshots via Tesseract is indexed into both full-text and vector engines, allowing you to search text inside images effortlessly.
+```bash
+cargo test -p sift-core          # unit + integration tests (offline mock encoder, no download)
 
----
+# Search-quality regression against your own index (real models; copies the DB first)
+SIFT_EVAL_DB=src-tauri/sift.db SIFT_EVAL_CASES=benchmarks/live_eval_cases.json \
+  cargo test --release -p sift-core --test live_index_eval -- --ignored --nocapture
+```
 
-## 🤝 Acknowledgements & Credits
+Layout: [`crates/sift-core`](crates/sift-core) holds indexing, search, and models (`gemma2.rs` is the EmbeddingGemma 2 runtime and `ranking.rs` handles intent, gating, and fusion). [`src-tauri`](src-tauri) is the desktop shell, and [`src`](src) is the React UI.
 
-- **[Google DeepMind](https://deepmind.google/)** for the remarkable open **EmbeddingGemma 2** model family.
-- **[@ARahim3](https://github.com/ARahim3)** for creating **[DigUp](https://github.com/ARahim3/DigUp)** on macOS and inspiring this Linux-native Rust implementation.
-- **[Tantivy](https://github.com/quickwit-oss/tantivy)** for the world-class Rust search engine library.
-- **[Tauri](https://tauri.app/)** for enabling lightweight, secure desktop applications.
+## Limitations
 
----
+- **No audio or video search yet.** EmbeddingGemma 2 supports both, so this is the obvious next step.
+- **CPU only.** The first full index of a large photo library takes a while (≈0.6 s per image). Optional GPU indexing is planned.
+- **Linux only**, developed and tested on Ubuntu/GNOME. Other desktops should work but are less tested.
+- Thresholds were calibrated on one person's files. If a query surprises you, please open an issue with the query and the file you expected.
 
-## 📄 License
+## Credits
 
-MIT License © 2026 Mayank Tiwari. Built with ❤️ for the Linux community.
+- [Google DeepMind](https://deepmind.google/) for [EmbeddingGemma 2](https://huggingface.co/google/embeddinggemma-2) (Apache 2.0), and the [ONNX export](https://huggingface.co/onnx-community/embeddinggemma-2-ONNX) by onnx-community.
+- [@ARahim3](https://github.com/ARahim3), whose [DigUp](https://github.com/ARahim3/DigUp) inspired this project.
+- [Tantivy](https://github.com/quickwit-oss/tantivy), [ONNX Runtime](https://onnxruntime.ai/) via [`ort`](https://github.com/pykeio/ort), [Tesseract](https://github.com/tesseract-ocr/tesseract), and [Tauri](https://tauri.app/).
+
+## License
+
+[MIT](LICENSE) © 2026 Mayank Tiwari
