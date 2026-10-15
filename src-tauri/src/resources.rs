@@ -106,3 +106,28 @@ fn pss_kb(pid: u32) -> Option<u64> {
         .parse()
         .ok()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn samples_this_process() {
+        let sampler = CpuSampler::default();
+        let first = sampler.sample(false);
+        assert!(first.memory_mb > 1.0, "PSS should be readable: {first:?}");
+        assert!(first.core_memory_mb > 1.0);
+        assert!(first.processes >= 1);
+
+        // Burn a little CPU so the second sample has a delta to measure.
+        let start = Instant::now();
+        let mut x = 0u64;
+        while start.elapsed().as_millis() < 300 {
+            x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+        }
+        std::hint::black_box(x);
+        let second = sampler.sample(false);
+        assert!(second.cpu_percent > 10.0, "busy loop should register CPU: {second:?}");
+        println!("{second:?}");
+    }
+}

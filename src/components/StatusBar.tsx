@@ -121,7 +121,27 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   isActionMenuOpen,
 }) => {
   const [showUsage, setShowUsage] = useState(false);
+  const [usage, setUsage] = useState<ResourceUsage | null>(null);
   const isBusy = status?.is_indexing || status?.is_scanning;
+
+  // Compact always-visible readout; skips polling while the launcher window is hidden.
+  useEffect(() => {
+    let alive = true;
+    const tick = () => {
+      if (document.hidden) return;
+      SiftAPI.getResourceUsage()
+        .then((u) => alive && setUsage(u))
+        .catch(() => {});
+    };
+    tick();
+    const interval = setInterval(tick, 5000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      alive = false;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, []);
   const progress = isBusy ? progressOf(status?.current_operation) : null;
 
   return (
@@ -134,15 +154,23 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         <button
           className="status-trigger"
           onClick={() => setShowUsage((v) => !v)}
-          title="Memory, CPU and index details"
+          title="Click for memory, CPU and model details"
         >
           <SiftBrandmark size={11} style={{ opacity: 0.9 }} />
           <span className={`indicator-dot ${isBusy ? "active" : ""}`} />
           <span className="status-text">
             {isBusy
               ? status?.current_operation || "Indexing…"
-              : `${(status?.files_indexed ?? 0).toLocaleString()} files indexed`}
+              : `${(status?.files_indexed ?? 0).toLocaleString()} files`}
           </span>
+          {usage && usage.memory_mb > 0 && (
+            <span className="status-usage">
+              <MemoryStick size={11} />
+              <span>{formatMb(usage.memory_mb)}</span>
+              <Cpu size={11} />
+              <span>{Math.round(usage.cpu_percent)}%</span>
+            </span>
+          )}
         </button>
         <button
           className="icon-btn icon-btn-sm"

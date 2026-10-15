@@ -1903,3 +1903,23 @@ html, body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.status-usage {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 8px;
+  margin-left: 2px;
+  border-left: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.status-usage svg {
+  opacity: 0.7;
+}
+
+.status-usage svg:not(:first-child) {
+  margin-left: 5px;
+}
