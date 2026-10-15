@@ -1421,6 +1421,22 @@ struct Retrieved {
     images: VectorOutcome,
 }
 
+/// Minimal HTML escaping for text shown through the UI's HTML snippet renderer.
+pub fn escape_html(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// At least three alphabetic words of three or more letters: enough to carry meaning.
 fn has_meaningful_words(text: &str) -> bool {
     text.split(|c: char| !c.is_alphabetic())
@@ -1535,10 +1551,15 @@ fn build_result_item(
         _ => MatchType::Semantic,
     };
 
+    // Snippets reach the UI as HTML (keyword highlights use <b>). Tantivy escapes its own
+    // fragments; everything else is raw file or OCR text and must be escaped here, or a file
+    // containing markup could inject script into the app.
     let snippet = keyword
         .map(|k| k.snippet.clone())
-        .or_else(|| semantic.map(|s| s.snippet.clone()))
-        .or_else(|| image.map(|_| format!("Visual contents match \"{}\"", query_text)));
+        .or_else(|| semantic.map(|s| escape_html(&s.snippet)))
+        .or_else(|| {
+            image.map(|_| format!("Visual contents match \"{}\"", escape_html(query_text)))
+        });
     let page_number = keyword
         .and_then(|k| k.page_number)
         .or_else(|| semantic.and_then(|s| s.page_number));

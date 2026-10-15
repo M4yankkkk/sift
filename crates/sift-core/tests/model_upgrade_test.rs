@@ -92,3 +92,30 @@ fn ml_toggle_disables_semantic_retrieval() {
     db.save_settings(&settings).unwrap();
     assert!(db.search("reconnect database", 10).unwrap().is_empty());
 }
+
+#[test]
+fn snippets_from_file_text_are_html_escaped() {
+    let dir = Builder::new().prefix("sift_xss_").tempdir().unwrap();
+    File::create(dir.path().join("pool_worker.rs"))
+        .unwrap()
+        .write_all(b"// pool retry backoff <img src=x onerror=alert(1)> exponential_backoff()")
+        .unwrap();
+    let engine: Arc<dyn EmbeddingEngine> = Arc::new(DeterministicMockEngine::new(768));
+    let db = Database::open_in_memory()
+        .unwrap()
+        .with_embedding_engine(Some(engine));
+    let root = db.add_root(dir.path().to_str().unwrap()).unwrap();
+    db.upsert_files_batch(&root.id, &scan_directory(dir.path(), &[]).unwrap())
+        .unwrap();
+
+    // Semantic-only hit: the snippet is raw file text and must come back escaped.
+    let results = db.search("reconnect database", 10).unwrap();
+    let snippet = results[0].snippet.as_deref().unwrap();
+    assert!(!snippet.contains("<img"), "unescaped markup in snippet: {snippet}");
+    assert!(snippet.contains("&lt;img"));
+
+    // Keyword hit: Tantivy's highlighted HTML must also escape the file's markup.
+    let results = db.search("onerror", 10).unwrap();
+    let snippet = results[0].snippet.as_deref().unwrap();
+    assert!(!snippet.contains("<img"), "unescaped markup in snippet: {snippet}");
+}

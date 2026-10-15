@@ -195,10 +195,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
                   <span>{copiedContent ? "Copied" : "Copy"}</span>
                 </button>
               </div>
-              <div
-                className="ocr-text-snippet"
-                dangerouslySetInnerHTML={{ __html: preview.snippet }}
-              />
+              <div className="ocr-text-snippet">{preview.snippet}</div>
             </div>
           )}
         </div>

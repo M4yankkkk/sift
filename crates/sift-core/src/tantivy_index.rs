@@ -325,13 +325,15 @@ impl TantivySearchIndex {
             let snippet = if !snippet_html.is_empty() {
                 snippet_html
             } else {
-                // Fallback to first line of content
-                doc.get_first(self.fields.content)
+                // Fallback to the start of the content, escaped like Tantivy's own HTML snippets
+                let start: String = doc
+                    .get_first(self.fields.content)
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .chars()
                     .take(120)
-                    .collect()
+                    .collect();
+                crate::storage::escape_html(&start)
             };
 
             let modality = doc
