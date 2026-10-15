@@ -82,12 +82,12 @@ Model correctness: Sift's Rust port of the EmbeddingGemma 2 image pipeline repro
 
 ## Install
 
-Requirements: Linux with X11 or Wayland (tested on GNOME), Rust 1.75+, Node.js 18+.
+Requirements: Linux with X11 or Wayland (tested on Ubuntu 24.04 / GNOME), Rust (stable), Node.js 20+.
 
 ```bash
-# System libraries: WebKitGTK for the UI, Tesseract for OCR, poppler for PDFs
-sudo apt install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
-                    tesseract-ocr poppler-utils
+# WebKitGTK for the UI, Tesseract for OCR, poppler for PDFs
+sudo apt install -y build-essential libssl-dev librsvg2-dev libwebkit2gtk-4.1-dev \
+                    libayatana-appindicator3-dev tesseract-ocr tesseract-ocr-eng poppler-utils
 
 git clone https://github.com/M4yankkkk/sift.git
 cd sift
@@ -129,15 +129,7 @@ Changing the embedding model is safe. Every vector records which model produced 
 
 ## Development
 
-```bash
-cargo test -p sift-core          # unit + integration tests (offline mock encoder, no download)
-
-# Search-quality regression against your own index (real models; copies the DB first)
-SIFT_EVAL_DB=src-tauri/sift.db SIFT_EVAL_CASES=benchmarks/live_eval_cases.json \
-  cargo test --release -p sift-core --test live_index_eval -- --ignored --nocapture
-```
-
-Layout: [`crates/sift-core`](crates/sift-core) holds indexing, search, and models (`gemma2.rs` is the EmbeddingGemma 2 runtime and `ranking.rs` handles intent, gating, and fusion). [`src-tauri`](src-tauri) is the desktop shell, and [`src`](src) is the React UI.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the project layout, the checks CI runs, and how to measure search quality against your own index.
 
 ## Limitations
 

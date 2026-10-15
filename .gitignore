@@ -1,17 +1,15 @@
-# Node & Frontend
+# Node & frontend
 node_modules/
 dist/
 dist-ssr/
 *.local
 .npm
 
-# Rust & Tauri
+# Rust & Tauri (Cargo.lock is committed: Sift is an application)
 target/
-src-tauri/target/
-crates/**/target/
-Cargo.lock
+src-tauri/gen/schemas/
 
-# OS & IDE
+# OS & editors
 .DS_Store
 Thumbs.db
 .vscode/
@@ -24,18 +22,21 @@ Thumbs.db
 .env.*
 *.log
 
-# Sift data runtime files
+# Sift runtime data (indexes are personal)
 *.db
 *.db-wal
 *.db-shm
-**/sift.db*
 sift_tantivy_index/
-**/sift_tantivy_index/
+src-tauri/backup-*/
 data/
 .fastembed_cache/
-**/.fastembed_cache/
 models/
-**/models/
 
 # Personal search-quality eval cases (contain local filenames)
 benchmarks/live_eval_cases.json
+
+# Personal working notes, kept out of the public repo
+Sift_AI_Build_Playbook.md
+docs/PROGRESS.md
+docs/PRODUCTION_DISTRIBUTION.md
+docs/DEMO_SCRIPT.md

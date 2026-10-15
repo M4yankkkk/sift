@@ -13,6 +13,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # OCR and PDF tests skip themselves when these tools are missing, so install them
+      - name: Install Tesseract and poppler
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng poppler-utils
+
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -22,13 +26,10 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy Linter
-        run: cargo clippy -p sift-core -- -D warnings
+        run: cargo clippy -p sift-core --all-targets -- -D warnings
 
-      - name: Core Unit Tests
+      - name: Core Tests
         run: cargo test -p sift-core
-
-      - name: Fixtures Integration Tests
-        run: cargo test -p sift-core --test fixtures_test
 
   frontend-checks:
     name: Frontend Typecheck and Tests
