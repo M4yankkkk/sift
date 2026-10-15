@@ -35,13 +35,11 @@ Everything happens locally. After a one-time model download (≈435 MB), Sift ma
 
 ## Why
 
-[DigUp](https://github.com/ARahim3/DigUp) showed how good local "search by meaning" feels with EmbeddingGemma 2, and Google's Gemma team featured it. Sift explores the same idea with a Linux-first, Rust-native design:
+Linux file search finds names, and grep finds exact strings. Neither finds "that photo of a sunset" or "the notes that explained retries". Sift answers those with a design built for a resident desktop tool:
 
 - **One process, no runtime to install.** The model runs in-process on ONNX Runtime from Rust. There is no Python, Node, or llama.cpp sidecar.
 - **Three kinds of search fused into one list:** meaning (EmbeddingGemma 2), exact keywords (Tantivy BM25), and the text inside images (Tesseract OCR, with word boxes drawn on the preview).
 - **A launcher, not a window:** a global hotkey, `Ctrl+K` actions, an instant preview, and PDFs that open at the matching page.
-
-DigUp also indexes audio and video and runs on macOS, with Windows and Linux betas. Sift doesn't handle audio or video yet; see [Limitations](#limitations).
 
 ## How search works
 
@@ -151,7 +149,6 @@ Layout: [`crates/sift-core`](crates/sift-core) holds indexing, search, and model
 ## Credits
 
 - [Google DeepMind](https://deepmind.google/) for [EmbeddingGemma 2](https://huggingface.co/google/embeddinggemma-2) (Apache 2.0), and the [ONNX export](https://huggingface.co/onnx-community/embeddinggemma-2-ONNX) by onnx-community.
-- [@ARahim3](https://github.com/ARahim3), whose [DigUp](https://github.com/ARahim3/DigUp) inspired this project.
 - [Tantivy](https://github.com/quickwit-oss/tantivy), [ONNX Runtime](https://onnxruntime.ai/) via [`ort`](https://github.com/pykeio/ort), [Tesseract](https://github.com/tesseract-ocr/tesseract), and [Tauri](https://tauri.app/).
 
 ## License
