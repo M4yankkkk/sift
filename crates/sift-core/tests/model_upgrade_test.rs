@@ -50,7 +50,9 @@ fn model_upgrade_reembeds_stale_vectors_and_never_mixes_spaces() {
     assert_eq!(db.count_stale_embedding_files().unwrap(), 1);
     let before = db.search_content("reconnect database", 10).unwrap();
     assert!(
-        before.iter().all(|r| !r.match_reasons.iter().any(|m| m.contains("Semantic"))),
+        before
+            .iter()
+            .all(|r| !r.match_reasons.iter().any(|m| m.contains("Semantic"))),
         "vectors from another model must not be compared: {:?}",
         before
     );
@@ -68,7 +70,10 @@ fn model_upgrade_reembeds_stale_vectors_and_never_mixes_spaces() {
 
     let after = db.search("reconnect database", 10).unwrap();
     assert_eq!(after[0].filename, "network_worker.rs");
-    assert!(after[0].match_reasons.iter().any(|m| m.contains("Semantic")));
+    assert!(after[0]
+        .match_reasons
+        .iter()
+        .any(|m| m.contains("Semantic")));
 }
 
 #[test]
@@ -111,11 +116,17 @@ fn snippets_from_file_text_are_html_escaped() {
     // Semantic-only hit: the snippet is raw file text and must come back escaped.
     let results = db.search("reconnect database", 10).unwrap();
     let snippet = results[0].snippet.as_deref().unwrap();
-    assert!(!snippet.contains("<img"), "unescaped markup in snippet: {snippet}");
+    assert!(
+        !snippet.contains("<img"),
+        "unescaped markup in snippet: {snippet}"
+    );
     assert!(snippet.contains("&lt;img"));
 
     // Keyword hit: Tantivy's highlighted HTML must also escape the file's markup.
     let results = db.search("onerror", 10).unwrap();
     let snippet = results[0].snippet.as_deref().unwrap();
-    assert!(!snippet.contains("<img"), "unescaped markup in snippet: {snippet}");
+    assert!(
+        !snippet.contains("<img"),
+        "unescaped markup in snippet: {snippet}"
+    );
 }

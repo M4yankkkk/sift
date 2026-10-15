@@ -130,7 +130,6 @@ pub fn is_image_supported_for_vision(ext: &str) -> bool {
     )
 }
 
-
 /// Returns the centralized directory for Sift ML model caches to prevent disk pollution.
 pub fn get_sift_models_cache_dir() -> std::path::PathBuf {
     if let Ok(custom) = std::env::var("SIFT_CACHE_DIR") {
@@ -140,13 +139,17 @@ pub fn get_sift_models_cache_dir() -> std::path::PathBuf {
         return std::path::PathBuf::from(xdg).join("sift").join("models");
     }
     if let Ok(home) = std::env::var("HOME") {
-        return std::path::PathBuf::from(home).join(".cache").join("sift").join("models");
+        return std::path::PathBuf::from(home)
+            .join(".cache")
+            .join("sift")
+            .join("models");
     }
     std::path::PathBuf::from(".fastembed_cache")
 }
 
 /// Prompt templates averaged for CLIP text queries (`{}` is replaced by the user's query).
-const CLIP_PROMPT_TEMPLATES: &[&str] = &["{}", "a photo of {}", "an image of {}", "a picture of {}"];
+const CLIP_PROMPT_TEMPLATES: &[&str] =
+    &["{}", "a photo of {}", "an image of {}", "a picture of {}"];
 
 /// FastEmbed-backed local ONNX embedding engine supporting both text and vision models.
 pub struct FastEmbedEngine {
@@ -219,8 +222,8 @@ impl FastEmbedEngine {
     /// Defaults to Google's EmbeddingGemma (`EmbeddingModel::EmbeddingGemma300MQ`) if available,
     /// falling back gracefully to `AllMiniLML6V2` if initial Gemma download is unavailable.
     pub fn try_new() -> Result<Self> {
-        let model_choice = std::env::var("SIFT_EMBEDDING_MODEL")
-            .unwrap_or_else(|_| "gemma".to_string());
+        let model_choice =
+            std::env::var("SIFT_EMBEDDING_MODEL").unwrap_or_else(|_| "gemma".to_string());
 
         let target_model = match model_choice.to_lowercase().as_str() {
             "minilm" => EmbeddingModel::AllMiniLML6V2,
@@ -343,7 +346,13 @@ impl DeterministicMockEngine {
         let lower = input.to_lowercase();
         let tokens: Vec<&str> = lower
             .split(|c: char| !c.is_alphanumeric() && c != '_')
-            .filter(|s| !s.is_empty() && !matches!(*s, "task" | "search" | "result" | "query" | "title" | "text" | "none"))
+            .filter(|s| {
+                !s.is_empty()
+                    && !matches!(
+                        *s,
+                        "task" | "search" | "result" | "query" | "title" | "text" | "none"
+                    )
+            })
             .collect();
 
         if tokens.is_empty() {
@@ -517,11 +526,17 @@ pub fn create_default_embedding_engine() -> Arc<dyn EmbeddingEngine> {
     if choice.is_empty() || choice.eq_ignore_ascii_case("embeddinggemma-2") {
         match EmbeddingGemma2Engine::try_new() {
             Ok(engine) => {
-                tracing::info!(model = engine.model_name(), "Initialized EmbeddingGemma 2 engine");
+                tracing::info!(
+                    model = engine.model_name(),
+                    "Initialized EmbeddingGemma 2 engine"
+                );
                 return Arc::new(engine);
             }
             Err(e) => {
-                tracing::warn!("EmbeddingGemma 2 unavailable ({}); falling back to legacy models", e)
+                tracing::warn!(
+                    "EmbeddingGemma 2 unavailable ({}); falling back to legacy models",
+                    e
+                )
             }
         }
     }

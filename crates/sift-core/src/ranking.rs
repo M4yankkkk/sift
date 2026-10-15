@@ -106,7 +106,7 @@ impl TypeFilter {
         let ext = extension.to_lowercase();
         match self {
             TypeFilter::Images => is_image_extension(&ext),
-            TypeFilter::Extensions(exts) => exts.iter().any(|e| *e == ext),
+            TypeFilter::Extensions(exts) => exts.contains(&ext),
         }
     }
 
@@ -329,11 +329,11 @@ impl QueryIntent {
     }
 
     pub fn allows_images(&self) -> bool {
-        self.filter.as_ref().map_or(true, |f| f.allows_images())
+        self.filter.as_ref().is_none_or(|f| f.allows_images())
     }
 
     pub fn allows(&self, extension: &str) -> bool {
-        self.filter.as_ref().map_or(true, |f| f.allows(extension))
+        self.filter.as_ref().is_none_or(|f| f.allows(extension))
     }
 
     /// Multiplier on the image list's fusion weight derived from the query's shape.

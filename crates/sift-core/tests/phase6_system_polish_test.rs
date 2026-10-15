@@ -10,7 +10,6 @@ fn test_phase6_settings_resource_mode_and_shortcut_persistence() {
     let initial = db.get_settings().expect("get settings");
     assert_eq!(initial.global_shortcut, "Ctrl+Alt+Space");
 
-
     assert_eq!(initial.resource_mode, ResourceMode::Eco);
     assert_eq!(initial.max_file_size_mb, 25);
 
@@ -46,7 +45,6 @@ fn test_phase6_search_query_edge_cases_and_cancellation() {
 
     let db = Database::open_in_memory().expect("open db");
     let _root = db.add_root(dir.path().to_str().unwrap()).expect("add root");
-
 
     // Empty or whitespace queries should return immediately with empty results
     let empty_results = db.search("", 10).expect("empty search");

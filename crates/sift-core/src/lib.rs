@@ -21,8 +21,8 @@ pub use models::*;
 pub use ocr::{extract_image_ocr, is_ocr_available, is_ocr_supported_extension};
 pub use scanner::{
     extract_pdf_page_preview, extract_pdf_preview, image_thumbnail_data_url, read_file_metadata,
-    read_file_preview,
-    render_pdf_first_page, render_pdf_page, scan_directory, FileMeta, PathRuleChecker,
+    read_file_preview, render_pdf_first_page, render_pdf_page, scan_directory, FileMeta,
+    PathRuleChecker,
 };
 pub use storage::Database;
 pub use tantivy_index::{FullTextHit, TantivySearchIndex};
@@ -33,7 +33,7 @@ pub fn init_logging() {
     use tracing_subscriber::{fmt, EnvFilter};
 
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("sift_core=info,sift_tauri=info,warn"));
+        .unwrap_or_else(|_| EnvFilter::new("sift_core=info,sift_lib=info,warn"));
 
     let _ = fmt()
         .with_env_filter(filter)
@@ -62,4 +62,3 @@ mod tests {
         assert_eq!(vec.len(), engine.dimension());
     }
 }
-

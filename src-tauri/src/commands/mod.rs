@@ -86,7 +86,8 @@ pub(crate) fn spawn_scan_worker(
                         }
 
                         // Periodic/startup reconciliation: prune deleted files
-                        let active_paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
+                        let active_paths: Vec<String> =
+                            files.iter().map(|f| f.path.clone()).collect();
                         if let Ok(pruned) = db.reconcile_root(&root.id, &active_paths) {
                             if pruned > 0 {
                                 tracing::info!(pruned, root = %root.path, "Reconciled deleted files for root");
@@ -121,7 +122,9 @@ pub(crate) fn spawn_scan_worker(
             if !needs_rescan.load(Ordering::SeqCst) {
                 break;
             }
-            tracing::info!("Rescan requested while previous scan was running; performing fresh pass");
+            tracing::info!(
+                "Rescan requested while previous scan was running; performing fresh pass"
+            );
         }
 
         *current_op.lock().unwrap() = None;
@@ -204,9 +207,10 @@ pub async fn search_files(
     let start = Instant::now();
     let limit = query.limit.unwrap_or(50);
 
-    let (results, mode_counts) = state
-        .db
-        .search_with_counts(&query.query, query.search_type.as_deref(), limit)?;
+    let (results, mode_counts) =
+        state
+            .db
+            .search_with_counts(&query.query, query.search_type.as_deref(), limit)?;
     let total_matches = results.len();
     let execution_time_ms = start.elapsed().as_secs_f64() * 1000.0;
 
@@ -467,7 +471,11 @@ pub async fn open_in_terminal(path: String) -> Result<()> {
         return Err(SiftError::PathNotFound(path));
     }
 
-    let dir = if p.is_dir() { p } else { p.parent().unwrap_or(p) };
+    let dir = if p.is_dir() {
+        p
+    } else {
+        p.parent().unwrap_or(p)
+    };
     let dir_str = dir.to_string_lossy().to_string();
 
     // 1. Try $TERMINAL if set
@@ -527,8 +535,13 @@ pub async fn set_settings(
 
     if old_settings.global_shortcut != settings.global_shortcut {
         use tauri_plugin_global_shortcut::GlobalShortcutExt;
-        let _ = app.global_shortcut().unregister(old_settings.global_shortcut.as_str());
-        if let Err(e) = app.global_shortcut().register(settings.global_shortcut.as_str()) {
+        let _ = app
+            .global_shortcut()
+            .unregister(old_settings.global_shortcut.as_str());
+        if let Err(e) = app
+            .global_shortcut()
+            .register(settings.global_shortcut.as_str())
+        {
             tracing::warn!(
                 "Failed to rebind global shortcut to '{}': {}",
                 settings.global_shortcut,

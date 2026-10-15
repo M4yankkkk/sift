@@ -71,19 +71,21 @@ fn evaluate_retrieval(
                     merged.insert(f.id.clone(), f);
                 }
                 for t in text_hits {
-                    merged.entry(t.file_id.clone()).or_insert_with(|| SearchResultItem {
-                        id: t.file_id,
-                        path: t.path,
-                        filename: t.filename,
-                        extension: "txt".to_string(),
-                        size_bytes: 100,
-                        modified_at: Utc::now(),
-                        score: t.score,
-                        match_type: MatchType::Keyword,
-                        match_reasons: vec!["Text hit".to_string()],
-                        snippet: Some(t.snippet),
-                        page_number: t.page_number,
-                    });
+                    merged
+                        .entry(t.file_id.clone())
+                        .or_insert_with(|| SearchResultItem {
+                            id: t.file_id,
+                            path: t.path,
+                            filename: t.filename,
+                            extension: "txt".to_string(),
+                            size_bytes: 100,
+                            modified_at: Utc::now(),
+                            score: t.score,
+                            match_type: MatchType::Keyword,
+                            match_reasons: vec!["Text hit".to_string()],
+                            snippet: Some(t.snippet),
+                            page_number: t.page_number,
+                        });
                 }
                 let mut v: Vec<_> = merged.into_values().collect();
                 v.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
@@ -136,7 +138,11 @@ fn evaluate_retrieval(
         }
 
         let rr = first_relevant_rank.map(|r| 1.0 / (r as f64)).unwrap_or(0.0);
-        let recall = if first_relevant_rank.is_some() { 1.0 } else { 0.0 };
+        let recall = if first_relevant_rank.is_some() {
+            1.0
+        } else {
+            0.0
+        };
 
         let dcg = compute_dcg(&relevances);
         let ideal_relevances = vec![1.0; q.relevant_filenames.len().min(10)];
@@ -230,7 +236,8 @@ fn test_phase7_ml_benchmark_evaluations() {
 
     let root = db.add_root(dir.path().to_str().unwrap()).expect("add root");
     let files = scan_directory(dir.path(), &[]).expect("scan directory");
-    db.upsert_files_batch(&root.id, &files).expect("upsert files");
+    db.upsert_files_batch(&root.id, &files)
+        .expect("upsert files");
 
     // 3. Ground Truth Evaluation Benchmark Queries
     let test_suite = vec![
@@ -250,7 +257,6 @@ fn test_phase7_ml_benchmark_evaluations() {
             category: QueryCategory::LexicalKeyword,
             relevant_filenames: vec!["docker_compose_deploy.yml".to_string()],
         },
-
         // Category 2: Paraphrase / Semantic conceptual queries (Zero keyword match)
         GroundTruthQuery {
             query: "how nodes agree on a single leader".to_string(),
@@ -272,7 +278,6 @@ fn test_phase7_ml_benchmark_evaluations() {
             category: QueryCategory::SemanticParaphrase,
             relevant_filenames: vec!["financial_tax_q3_report.txt".to_string()],
         },
-
         // Category 3: OCR screenshot & incident extraction
         GroundTruthQuery {
             query: "upstream failover timeout error".to_string(),
@@ -284,7 +289,6 @@ fn test_phase7_ml_benchmark_evaluations() {
             category: QueryCategory::OcrDocument,
             relevant_filenames: vec!["security_audit_memo.md".to_string()],
         },
-
         // Category 4: Visual multimodal concepts
         GroundTruthQuery {
             query: "sunset horizon over alpine mountains".to_string(),
@@ -297,7 +301,10 @@ fn test_phase7_ml_benchmark_evaluations() {
     println!("  PHASE 7 ML RESEARCH EVALUATION REPORT — IR RETRIEVAL BENCHMARKS");
     println!("==========================================================================");
     println!("Ground Truth Corpus Size: {} documents", corpus.len());
-    println!("Evaluation Test Suite:   {} queries across 4 categories", test_suite.len());
+    println!(
+        "Evaluation Test Suite:   {} queries across 4 categories",
+        test_suite.len()
+    );
     println!("Encoder:                 DeterministicMockEngine (offline hash encoder; tests the");
     println!("                         retrieval pipeline, not real model quality)");
     println!("Fusion Algorithm:        Weighted Reciprocal Rank Fusion");
@@ -316,7 +323,9 @@ fn test_phase7_ml_benchmark_evaluations() {
         "\n{:<22} | {:<9} | {:<10} | {:<9} | {:<12} | {:<12}",
         "Retrieval Mode", "MRR@10", "Recall@10", "nDCG@10", "Avg Latency", "p95 Latency"
     );
-    println!("-----------------------------------------------------------------------------------------");
+    println!(
+        "-----------------------------------------------------------------------------------------"
+    );
     println!(
         "{:<22} | {:<9.3} | {:<10.3} | {:<9.3} | {:<10.3} ms | {:<10.3} ms",
         "BM25 Lexical Only",
@@ -344,7 +353,9 @@ fn test_phase7_ml_benchmark_evaluations() {
         metrics_hybrid.latency_avg_ms,
         metrics_hybrid.latency_p95_ms
     );
-    println!("-----------------------------------------------------------------------------------------");
+    println!(
+        "-----------------------------------------------------------------------------------------"
+    );
 
     // Key Phase 7 ML Research Findings Assertions
     // 1. Hybrid RRF must achieve equal or superior Recall@10 and nDCG compared to Lexical Only
@@ -368,7 +379,9 @@ fn test_phase7_ml_benchmark_evaluations() {
         metrics_hybrid.latency_avg_ms
     );
 
-    println!("\n[Phase 7 Research Outcome] All acceptance criteria met with empirical verification.");
+    println!(
+        "\n[Phase 7 Research Outcome] All acceptance criteria met with empirical verification."
+    );
 }
 
 #[test]

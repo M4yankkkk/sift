@@ -1,16 +1,8 @@
 pub mod app;
 pub mod commands;
-pub mod embeddings;
-pub mod extract;
-pub mod indexing;
 pub mod ipc;
-pub mod jobs;
 pub mod resources;
-pub mod scanner;
-pub mod search;
-pub mod storage;
 pub mod tray;
-pub mod watcher;
 
 use app::AppState;
 use commands::*;
@@ -28,7 +20,10 @@ pub fn run() {
             "sift.db".to_string()
         } else {
             let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-            let sift_data_dir = std::path::PathBuf::from(home).join(".local").join("share").join("sift");
+            let sift_data_dir = std::path::PathBuf::from(home)
+                .join(".local")
+                .join("share")
+                .join("sift");
             let _ = std::fs::create_dir_all(&sift_data_dir);
             sift_data_dir.join("sift.db").to_string_lossy().to_string()
         }
@@ -78,9 +73,16 @@ pub fn run() {
             use tauri_plugin_global_shortcut::GlobalShortcutExt;
             let registered = app.global_shortcut().register(initial_shortcut.as_str());
             if let Err(e) = registered {
-                tracing::warn!("Failed to register initial global shortcut '{}': {}", initial_shortcut, e);
+                tracing::warn!(
+                    "Failed to register initial global shortcut '{}': {}",
+                    initial_shortcut,
+                    e
+                );
             } else {
-                tracing::info!("Successfully registered global shortcut '{}'", initial_shortcut);
+                tracing::info!(
+                    "Successfully registered global shortcut '{}'",
+                    initial_shortcut
+                );
             }
             Ok(())
         })
@@ -102,7 +104,6 @@ pub fn run() {
             get_resource_usage,
             get_thumbnail
         ])
-
         .run(tauri::generate_context!())
         .expect("error while running Sift tauri application");
 }
@@ -121,5 +122,3 @@ mod tests {
         assert!(Shortcut::from_str("Ctrl+Shift+Space").is_ok());
     }
 }
-
-

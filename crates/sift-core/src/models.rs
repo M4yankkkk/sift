@@ -138,7 +138,6 @@ impl Default for AppSettings {
             global_shortcut: "Ctrl+Alt+Space".to_string(),
             resource_mode: ResourceMode::Eco,
 
-
             ml_enabled: true,
             ocr_enabled: true,
             default_exclusions: vec![

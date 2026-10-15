@@ -164,8 +164,6 @@ fn test_phase5_hybrid_reciprocal_rank_fusion() {
     // File A should outrank File B due to hybrid keyword + semantic fusion boost
     assert_eq!(results[0].filename, "auth_service.rs");
     assert!(results[0].score > results[1].score);
-
-
 }
 
 #[test]

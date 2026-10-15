@@ -279,7 +279,7 @@ impl EmbeddingGemma2 {
         let mut seq: Vec<i64> = Vec::with_capacity(prepared.soft_tokens + 4);
         seq.push(BOS);
         seq.push(BOI);
-        seq.extend(std::iter::repeat(IMAGE_TOKEN).take(prepared.soft_tokens));
+        seq.extend(std::iter::repeat_n(IMAGE_TOKEN, prepared.soft_tokens));
         seq.push(EOI);
         seq.push(EOS);
         let len = seq.len();
@@ -343,9 +343,7 @@ fn session(path: &Path, intra_threads: usize) -> Result<Session> {
     let what = format!("load {}", path.display());
     let builder = Session::builder().map_err(|e| internal(&what, e))?;
     let builder = builder
-        .with_execution_providers([ort::ep::CPU::default()
-            .with_arena_allocator(false)
-            .build()])
+        .with_execution_providers([ort::ep::CPU::default().with_arena_allocator(false).build()])
         .map_err(|e| internal(&what, e))?;
     let builder = builder
         .with_memory_pattern(false)
@@ -353,7 +351,9 @@ fn session(path: &Path, intra_threads: usize) -> Result<Session> {
     let mut builder = builder
         .with_intra_threads(intra_threads.max(1))
         .map_err(|e| internal(&what, e))?;
-    builder.commit_from_file(path).map_err(|e| internal(&what, e))
+    builder
+        .commit_from_file(path)
+        .map_err(|e| internal(&what, e))
 }
 
 /// Downloads `files` from [`REPO`] into the Hugging Face cache under `cache_dir`, returning the
@@ -427,8 +427,7 @@ pub fn preprocess_image(img: &image::DynamicImage, vision_budget: usize) -> Resu
     let max_patches = vision_budget * POOLING_KERNEL * POOLING_KERNEL;
     let rgb = img.to_rgb8();
     let (w, h) = (rgb.width() as usize, rgb.height() as usize);
-    let (th, tw) =
-        aspect_ratio_preserving_size(h, w, PATCH_SIZE, max_patches, POOLING_KERNEL)?;
+    let (th, tw) = aspect_ratio_preserving_size(h, w, PATCH_SIZE, max_patches, POOLING_KERNEL)?;
     let resized = if (th, tw) == (h, w) {
         rgb
     } else {

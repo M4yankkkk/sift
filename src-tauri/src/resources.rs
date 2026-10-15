@@ -64,10 +64,15 @@ fn process_tree(root: u32) -> Vec<u32> {
     let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
     if let Ok(entries) = std::fs::read_dir("/proc") {
         for entry in entries.flatten() {
-            let Some(pid) = entry.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else {
+            let Some(pid) = entry
+                .file_name()
+                .to_str()
+                .and_then(|s| s.parse::<u32>().ok())
+            else {
                 continue;
             };
-            if let Some(ppid) = stat_fields(pid).and_then(|f| f.get(1).and_then(|v| v.parse().ok())) {
+            if let Some(ppid) = stat_fields(pid).and_then(|f| f.get(1).and_then(|v| v.parse().ok()))
+            {
                 children.entry(ppid).or_default().push(pid);
             }
         }
@@ -127,7 +132,10 @@ mod tests {
         }
         std::hint::black_box(x);
         let second = sampler.sample(false);
-        assert!(second.cpu_percent > 10.0, "busy loop should register CPU: {second:?}");
+        assert!(
+            second.cpu_percent > 10.0,
+            "busy loop should register CPU: {second:?}"
+        );
         println!("{second:?}");
     }
 }

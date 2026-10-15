@@ -181,7 +181,10 @@ mod tests {
 
     #[test]
     fn test_format_gnome_binding() {
-        assert_eq!(format_gnome_binding("Ctrl+Alt+Space"), "<Control><Alt>space");
+        assert_eq!(
+            format_gnome_binding("Ctrl+Alt+Space"),
+            "<Control><Alt>space"
+        );
         assert_eq!(format_gnome_binding("Alt+Shift+S"), "<Alt><Shift>s");
         assert_eq!(format_gnome_binding("Super+Space"), "<Super>space");
     }

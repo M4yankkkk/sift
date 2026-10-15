@@ -2,8 +2,8 @@ use chrono::{DateTime, Utc};
 use sift_core::models::IndexStatus;
 use sift_core::storage::Database;
 use sift_core::watcher::FileWatcher;
-use std::path::Path;
 use std::collections::{HashMap, VecDeque};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -104,8 +104,8 @@ impl AppState {
             let queue_length = state.queue_length.clone();
             std::thread::spawn(move || loop {
                 std::thread::sleep(Duration::from_secs(30));
-                let busy = is_scanning.load(Ordering::SeqCst)
-                    || queue_length.load(Ordering::Relaxed) > 0;
+                let busy =
+                    is_scanning.load(Ordering::SeqCst) || queue_length.load(Ordering::Relaxed) > 0;
                 if !busy {
                     if let Some(ref engine) = db.embedding_engine {
                         engine.release_if_idle(MODEL_IDLE_RELEASE);

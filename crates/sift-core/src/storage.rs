@@ -367,15 +367,12 @@ impl Database {
                     "#,
                 )?;
 
-                let mut check_existing = tx.prepare(
-                    "SELECT id, fingerprint, is_deleted FROM files WHERE path = ?1",
-                )?;
-                let mut has_emb_stmt = tx.prepare(
-                    "SELECT 1 FROM chunk_embeddings WHERE file_id = ?1 LIMIT 1",
-                )?;
-                let mut has_ocr_stmt = tx.prepare(
-                    "SELECT 1 FROM ocr_data WHERE file_id = ?1 LIMIT 1",
-                )?;
+                let mut check_existing =
+                    tx.prepare("SELECT id, fingerprint, is_deleted FROM files WHERE path = ?1")?;
+                let mut has_emb_stmt =
+                    tx.prepare("SELECT 1 FROM chunk_embeddings WHERE file_id = ?1 LIMIT 1")?;
+                let mut has_ocr_stmt =
+                    tx.prepare("SELECT 1 FROM ocr_data WHERE file_id = ?1 LIMIT 1")?;
 
                 for file in files {
                     let existing_opt = check_existing
@@ -395,11 +392,17 @@ impl Database {
                         Some((existing_id, existing_fp, is_deleted)) => {
                             if is_deleted == 0 && existing_fp == file.fingerprint {
                                 // Fingerprint matches exactly! The file has not changed on disk.
-                                let is_image = crate::embeddings::is_image_supported_for_vision(&file.extension);
-                                let is_ocr = crate::ocr::is_ocr_supported_extension(&file.extension);
-                                let is_doc_or_code = crate::extract::is_text_or_code_extension(&file.extension) || file.extension == "pdf";
+                                let is_image = crate::embeddings::is_image_supported_for_vision(
+                                    &file.extension,
+                                );
+                                let is_ocr =
+                                    crate::ocr::is_ocr_supported_extension(&file.extension);
+                                let is_doc_or_code =
+                                    crate::extract::is_text_or_code_extension(&file.extension)
+                                        || file.extension == "pdf";
 
-                                let already_has_embeddings = has_emb_stmt.exists(params![existing_id]).unwrap_or(false);
+                                let already_has_embeddings =
+                                    has_emb_stmt.exists(params![existing_id]).unwrap_or(false);
                                 let already_has_ocr = if is_ocr {
                                     has_ocr_stmt.exists(params![existing_id]).unwrap_or(false)
                                 } else {
@@ -561,8 +564,8 @@ impl Database {
                     let modality = document_modality(&extension);
 
                     if let Some(ref text_index) = self.text_index {
-                        let _ =
-                            text_index.upsert_file_chunks(&id, &path, &filename, &modality, &chunks);
+                        let _ = text_index
+                            .upsert_file_chunks(&id, &path, &filename, &modality, &chunks);
                     }
 
                     if embeddings_on {
@@ -747,7 +750,12 @@ impl Database {
             } else if !crate::embeddings::is_image_supported_for_vision(&extension) {
                 let chunks = extract_document_chunks(Path::new(&path)).unwrap_or_default();
                 if !chunks.is_empty() {
-                    self.store_text_embeddings(&id, &filename, &document_modality(&extension), &chunks);
+                    self.store_text_embeddings(
+                        &id,
+                        &filename,
+                        &document_modality(&extension),
+                        &chunks,
+                    );
                 }
             }
             // Anything still from the old model could not be regenerated; drop it so it is not
@@ -863,7 +871,12 @@ impl Database {
         is_image_only: Option<bool>,
     ) -> Result<Vec<VectorSearchResult>> {
         Ok(self
-            .vector_search(query_vec, limit, is_image_only, self.relevance().image_z_blended)?
+            .vector_search(
+                query_vec,
+                limit,
+                is_image_only,
+                self.relevance().image_z_blended,
+            )?
             .hits)
     }
 
@@ -970,10 +983,18 @@ impl Database {
                 (z >= min_z && sim >= floor, z, conf)
             } else if is_image {
                 let t = profile.image_sim_small_corpus;
-                (sim >= t, 0.0, 0.55 + ranking::clamp01((sim - t) / 0.06) * 0.40)
+                (
+                    sim >= t,
+                    0.0,
+                    0.55 + ranking::clamp01((sim - t) / 0.06) * 0.40,
+                )
             } else {
                 let t = profile.text_sim_small_corpus;
-                (sim >= t, 0.0, 0.50 + ranking::clamp01((sim - t) / 0.18) * 0.40)
+                (
+                    sim >= t,
+                    0.0,
+                    0.50 + ranking::clamp01((sim - t) / 0.18) * 0.40,
+                )
             };
             if passes {
                 if st.is_reliable() {
@@ -1032,9 +1053,11 @@ impl Database {
         let filename = self.search_filenames(q, limit.max(MAX_FILENAME_HITS))?;
 
         let keyword = match self.text_index {
-            Some(ref text_index) => {
-                group_keyword_hits(text_index.search(q, KEYWORD_CHUNK_FETCH).unwrap_or_default())
-            }
+            Some(ref text_index) => group_keyword_hits(
+                text_index
+                    .search(q, KEYWORD_CHUNK_FETCH)
+                    .unwrap_or_default(),
+            ),
             None => Vec::new(),
         };
 
@@ -1090,7 +1113,7 @@ impl Database {
             Path::new(name)
                 .extension()
                 .and_then(|e| e.to_str())
-                .map_or(false, crate::embeddings::is_image_supported_for_vision)
+                .is_some_and(crate::embeddings::is_image_supported_for_vision)
         };
         let visual = mode == SearchMode::Visual;
         let q_lower = intent.text.to_lowercase();
@@ -1171,7 +1194,9 @@ impl Database {
                     .images
                     .hits
                     .iter()
-                    .filter(|h| h.z_score >= profile.image_z_blended || retrieved.images.top_z.is_none())
+                    .filter(|h| {
+                        h.z_score >= profile.image_z_blended || retrieved.images.top_z.is_none()
+                    })
                     .take(MAX_BLENDED_IMAGE_HITS)
                     .map(|h| h.file_id.clone())
                     .collect();
@@ -1327,7 +1352,8 @@ impl Database {
             let n = if other == mode {
                 results.len()
             } else {
-                self.fuse(&intent, other, &retrieved, &mut records, limit)?.len()
+                self.fuse(&intent, other, &retrieved, &mut records, limit)?
+                    .len()
             };
             match other {
                 SearchMode::All => counts.all = n,
@@ -1503,7 +1529,12 @@ fn duplicate_key(
     } else {
         format!("name:{}", rec.filename.to_lowercase())
     };
-    format!("{}:{}:{}", rec.extension.to_lowercase(), rec.size_bytes, evidence)
+    format!(
+        "{}:{}:{}",
+        rec.extension.to_lowercase(),
+        rec.size_bytes,
+        evidence
+    )
 }
 
 fn build_result_item(
@@ -1580,7 +1611,6 @@ fn build_result_item(
 }
 
 impl Database {
-
     pub fn get_file_by_id(&self, file_id: &str) -> Result<Option<FileRecord>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
@@ -1783,8 +1813,6 @@ mod tests {
 
         let default_settings = db.get_settings().expect("get default settings");
         assert_eq!(default_settings.global_shortcut, "Ctrl+Alt+Space");
-
-
 
         let mut custom_settings = default_settings;
         custom_settings.global_shortcut = "Ctrl+Shift+F".to_string();

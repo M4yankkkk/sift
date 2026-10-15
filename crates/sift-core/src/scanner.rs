@@ -147,7 +147,9 @@ pub fn scan_directory(root: &Path, exclusions: &[String]) -> Result<Vec<FileMeta
             _ => {
                 let depth_a = a.path.matches('/').count();
                 let depth_b = b.path.matches('/').count();
-                depth_a.cmp(&depth_b).then_with(|| a.filename.cmp(&b.filename))
+                depth_a
+                    .cmp(&depth_b)
+                    .then_with(|| a.filename.cmp(&b.filename))
             }
         }
     });
@@ -212,7 +214,10 @@ pub fn image_thumbnail_data_url(path: &Path, max_side: u32) -> Option<String> {
     if (w as u64) * (h as u64) > 80_000_000 {
         return None;
     }
-    let thumb = image::open(path).ok()?.thumbnail(max_side, max_side).to_rgb8();
+    let thumb = image::open(path)
+        .ok()?
+        .thumbnail(max_side, max_side)
+        .to_rgb8();
     let mut jpeg = Vec::new();
     image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 80)
         .encode_image(&thumb)

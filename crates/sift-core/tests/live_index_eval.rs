@@ -100,7 +100,7 @@ fn live_index_search_quality() {
     let mut failures = Vec::new();
     for case in cases
         .iter()
-        .filter(|c| only.as_deref().map_or(true, |q| c.query == q))
+        .filter(|c| only.as_deref().is_none_or(|q| c.query == q))
     {
         let t0 = Instant::now();
         let (results, counts) = db
@@ -120,7 +120,7 @@ fn live_index_search_quality() {
 
         let mut verdict = "info";
         if !expected.is_empty() {
-            if rank.map_or(false, |r| r < case.within) {
+            if rank.is_some_and(|r| r < case.within) {
                 verdict = "PASS";
             } else {
                 verdict = "FAIL";
