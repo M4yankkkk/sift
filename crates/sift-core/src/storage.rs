@@ -884,7 +884,8 @@ impl Database {
         let sql = format!(
             r#"
             SELECT e.id, e.file_id, e.modality = 'image', f.size_bytes, e.embedding,
-                   e.modality = 'ocr' AND length(trim(e.snippet)) < 3
+                   CASE WHEN e.modality = 'ocr' THEN e.snippet END,
+                   lower(f.extension) = 'svg' AND e.modality != 'image'
             FROM chunk_embeddings e
             JOIN files f ON e.file_id = f.id
             WHERE f.is_deleted = 0 AND e.model IS ?1 {}
@@ -912,9 +913,17 @@ impl Database {
                 if size_bytes < 32 {
                     continue;
                 }
-                // Exclude short garbage OCR snippets (< 3 bytes) from vector semantic matching
-                let garbage_ocr: bool = row.get(5)?;
-                if garbage_ocr {
+                // OCR of icons and UI sprites ("Dd", "<>") carries no meaning but still lands near
+                // random queries in embedding space; keyword search keeps covering it.
+                let ocr_text: Option<String> = row.get(5)?;
+                if let Some(text) = ocr_text {
+                    if size_bytes < 2048 || !has_meaningful_words(&text) {
+                        continue;
+                    }
+                }
+                // SVG markup embeds as noise; its text stays searchable by keyword.
+                let svg_markup: bool = row.get(6)?;
+                if svg_markup {
                     continue;
                 }
 
@@ -1089,9 +1098,9 @@ impl Database {
 
         let mut lists: Vec<(f32, Vec<String>)> = Vec::new();
 
-        // 1. Filenames: whole-word matches are strong evidence, substrings inside words are weak
-        //    (and meaningless for one- or two-letter queries).
-        let short_query = q_lower.chars().count() < 3;
+        // 1. Filenames: whole-word matches are strong evidence, substrings inside words are weak,
+        //    and for queries under four letters mostly accidental ("cat" in "communication").
+        let short_query = q_lower.chars().count() < 4;
         if mode != SearchMode::Content {
             let (strong, weak): (Vec<&SearchResultItem>, Vec<&SearchResultItem>) = retrieved
                 .filename
@@ -1410,6 +1419,15 @@ struct Retrieved {
     keyword: Vec<KeywordHit>,
     text_semantic: VectorOutcome,
     images: VectorOutcome,
+}
+
+/// At least three alphabetic words of three or more letters: enough to carry meaning.
+fn has_meaningful_words(text: &str) -> bool {
+    text.split(|c: char| !c.is_alphabetic())
+        .filter(|w| w.chars().count() >= 3)
+        .take(3)
+        .count()
+        >= 3
 }
 
 fn document_modality(extension: &str) -> String {

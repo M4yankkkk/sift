@@ -23,17 +23,19 @@ pub const REPO: &str = "onnx-community/embeddinggemma-2-ONNX";
 pub const MODEL_ID: &str = "google/embeddinggemma-2 (onnx q8 text, q4 vision, 70 tokens)";
 pub const DIM: usize = 768;
 
-/// Calibrated on a real ~5k-file index (670 photos/screenshots, 14.6k text chunks). Query-to-image
-/// cosines sit near 0.60 (sd ≈ 0.025): true matches stood 4–6.4σ above the mean ("sunset" 5.9σ,
-/// "dog" 6.4σ, "earth" 4.5σ) while queries with no matching photo topped out at 2.8–3.4σ.
+/// Calibrated on a real ~5k-file index (670 photos/screenshots, 12k meaningful text chunks).
+/// Images: query cosines sit near 0.60 (sd ≈ 0.025); true matches stood 4–6.4σ above the mean
+/// ("sunset" 5.9σ, "dog" 6.4σ, "earth" 4.5σ), queries with no matching photo topped out at 2.8–3.4σ.
+/// Text: genuine matches 4.0–5.8σ ("database retry" 5.8σ, "machine learning" 4.7σ); queries with
+/// no relevant document topped out at 2.8–3.8σ.
 pub const RELEVANCE_PROFILE: crate::ranking::RelevanceProfile = crate::ranking::RelevanceProfile {
     image_z_blended: 3.5,
     image_z_visual: 3.0,
-    text_z: 4.2,
+    text_z: 4.0,
     image_sim_floor: 0.55,
-    text_sim_floor: 0.22,
+    text_sim_floor: 0.50,
     image_sim_small_corpus: 0.68,
-    text_sim_small_corpus: 0.45,
+    text_sim_small_corpus: 0.66,
 };
 
 const TOKENIZER_FILE: &str = "tokenizer.json";
@@ -106,9 +108,13 @@ const EOI: i64 = 258_882;
 
 pub struct EmbeddingGemma2 {
     text: Mutex<Session>,
-    vision: Option<Mutex<Session>>,
+    /// Downloaded vision encoder, loaded on the first image: searches only embed text queries, so
+    /// an idle app never pays for it.
+    vision_path: Option<PathBuf>,
+    vision: Mutex<Option<Session>>,
     tokenizer: Tokenizer,
     vision_budget: usize,
+    intra_threads: usize,
 }
 
 impl EmbeddingGemma2 {
@@ -136,20 +142,18 @@ impl EmbeddingGemma2 {
         tokenizer.with_padding(None);
 
         let text = Mutex::new(session(&text_path, intra_threads)?);
-        let vision = match vision_path {
-            Some(p) => Some(Mutex::new(session(&p, intra_threads)?)),
-            None => None,
-        };
         Ok(Self {
             text,
-            vision,
+            vision_path,
+            vision: Mutex::new(None),
             tokenizer,
             vision_budget: config.vision_budget,
+            intra_threads,
         })
     }
 
     pub fn has_vision(&self) -> bool {
-        self.vision.is_some()
+        self.vision_path.is_some()
     }
 
     /// Embeds already-prefixed texts (`task: search result | query: …`, `title: … | text: …`).
@@ -175,10 +179,10 @@ impl EmbeddingGemma2 {
 
     /// Embeds one image file. Images carry no task prefix.
     pub fn embed_image(&self, path: &Path) -> Result<Vec<f32>> {
-        let vision = self
-            .vision
+        let vision_path = self
+            .vision_path
             .as_ref()
-            .ok_or_else(|| SiftError::Internal("vision encoder not loaded".to_string()))?;
+            .ok_or_else(|| SiftError::Internal("vision encoder not installed".to_string()))?;
 
         let (w, h) = image::ImageReader::open(path)
             .map_err(|e| internal("open image", e))?
@@ -196,7 +200,11 @@ impl EmbeddingGemma2 {
         let prepared = preprocess_image(&img, self.vision_budget)?;
 
         let features = {
-            let mut session = vision.lock().unwrap();
+            let mut guard = self.vision.lock().unwrap();
+            if guard.is_none() {
+                *guard = Some(session(vision_path, self.intra_threads)?);
+            }
+            let session = guard.as_mut().expect("vision session just loaded");
             let pixel_values = Value::from_array(prepared.pixel_values)
                 .map_err(|e| internal("pixel tensor", e))?;
             let positions = Value::from_array(prepared.position_ids)

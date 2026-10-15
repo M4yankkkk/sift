@@ -92,8 +92,16 @@ fn live_index_search_quality() {
     // Warm the models so the first case's latency is not model loading.
     let _ = db.search("warmup", 5);
 
+    let show: usize = std::env::var("SIFT_EVAL_SHOW")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8);
+    let only = std::env::var("SIFT_EVAL_ONLY").ok();
     let mut failures = Vec::new();
-    for case in &cases {
+    for case in cases
+        .iter()
+        .filter(|c| only.as_deref().map_or(true, |q| c.query == q))
+    {
         let t0 = Instant::now();
         let (results, counts) = db
             .search_with_counts(&case.query, Some(case.mode.as_str()), 50)
@@ -148,7 +156,7 @@ fn live_index_search_quality() {
             ms,
             counts.map(|c| (c.all, c.filename, c.content, c.visual)),
         );
-        for (i, r) in results.iter().take(8).enumerate() {
+        for (i, r) in results.iter().take(show).enumerate() {
             let short = r.path.rsplit('/').take(2).collect::<Vec<_>>();
             println!(
                 "   {:>2}. {:.2} {:<8} {} | {}",
