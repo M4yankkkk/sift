@@ -107,3 +107,14 @@ export interface AppError {
 export type TauriResponse<T> =
   | { success: true; data: T }
   | { success: false; error: AppError };
+
+/** Live memory/CPU of the whole app (core + UI processes). */
+export interface ResourceUsage {
+  memory_mb: number;
+  core_memory_mb: number;
+  /** % of one core since the previous sample. */
+  cpu_percent: number;
+  cpu_cores: number;
+  processes: number;
+  model_loaded: boolean;
+}

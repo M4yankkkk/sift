@@ -3,8 +3,38 @@ use sift_core::models::IndexStatus;
 use sift_core::storage::Database;
 use sift_core::watcher::FileWatcher;
 use std::path::Path;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+/// Free the embedding model after this long without searches or indexing.
+const MODEL_IDLE_RELEASE: Duration = Duration::from_secs(5 * 60);
+const THUMBNAIL_CACHE_SIZE: usize = 400;
+
+/// Small LRU of thumbnail data URLs keyed by file id (~5 KB each).
+#[derive(Default)]
+pub struct ThumbnailCache {
+    entries: HashMap<String, Option<String>>,
+    order: VecDeque<String>,
+}
+
+impl ThumbnailCache {
+    pub fn get(&self, id: &str) -> Option<Option<String>> {
+        self.entries.get(id).cloned()
+    }
+
+    pub fn insert(&mut self, id: String, thumb: Option<String>) {
+        if self.entries.insert(id.clone(), thumb).is_none() {
+            self.order.push_back(id);
+            while self.order.len() > THUMBNAIL_CACHE_SIZE {
+                if let Some(old) = self.order.pop_front() {
+                    self.entries.remove(&old);
+                }
+            }
+        }
+    }
+}
 
 pub struct AppState {
     pub db: Arc<Database>,
@@ -14,6 +44,8 @@ pub struct AppState {
     pub watcher: Arc<Mutex<Option<FileWatcher>>>,
     pub queue_length: Arc<AtomicUsize>,
     pub needs_rescan: Arc<AtomicBool>,
+    pub cpu_sampler: crate::resources::CpuSampler,
+    pub thumbnails: Mutex<ThumbnailCache>,
 }
 
 impl AppState {
@@ -61,7 +93,26 @@ impl AppState {
             watcher,
             queue_length,
             needs_rescan: needs_rescan.clone(),
+            cpu_sampler: Default::default(),
+            thumbnails: Default::default(),
         };
+
+        // Free the embedding model when Sift sits idle; the next search reloads it (~0.6 s).
+        {
+            let db = state.db.clone();
+            let is_scanning = state.is_scanning.clone();
+            let queue_length = state.queue_length.clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(Duration::from_secs(30));
+                let busy = is_scanning.load(Ordering::SeqCst)
+                    || queue_length.load(Ordering::Relaxed) > 0;
+                if !busy {
+                    if let Some(ref engine) = db.embedding_engine {
+                        engine.release_if_idle(MODEL_IDLE_RELEASE);
+                    }
+                }
+            });
+        }
 
         // Automatically discover new/modified files and reconcile on app startup
         crate::commands::spawn_scan_worker(

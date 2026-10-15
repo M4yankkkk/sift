@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  ResourceUsage,
   RootFolder,
   IndexStatus,
   SearchQuery,
@@ -133,6 +134,18 @@ export const SiftAPI = {
       };
     }
     return invoke<PreviewResponse>("preview_result", { fileId, page: page || null });
+  },
+
+  getThumbnail: async (fileId: string): Promise<string | null> => {
+    if (!isTauriEnvironment()) return null;
+    return invoke<string | null>("get_thumbnail", { fileId });
+  },
+
+  getResourceUsage: async (): Promise<ResourceUsage> => {
+    if (!isTauriEnvironment()) {
+      return { memory_mb: 0, core_memory_mb: 0, cpu_percent: 0, cpu_cores: 1, processes: 1, model_loaded: false };
+    }
+    return invoke<ResourceUsage>("get_resource_usage");
   },
 
   openResult: async (path: string, page?: number | null): Promise<void> => {

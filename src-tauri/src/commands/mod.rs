@@ -552,3 +552,39 @@ pub async fn hide_window(app: tauri::AppHandle) -> Result<()> {
     Ok(())
 }
 
+#[tauri::command]
+pub async fn get_resource_usage(
+    state: State<'_, AppState>,
+) -> Result<crate::resources::ResourceUsage> {
+    let model_loaded = state
+        .db
+        .embedding_engine
+        .as_ref()
+        .map(|e| e.is_loaded())
+        .unwrap_or(false);
+    Ok(state.cpu_sampler.sample(model_loaded))
+}
+
+/// Small JPEG thumbnail (`data:` URL) for an indexed image, or `None` if it can't be decoded.
+#[tauri::command]
+pub async fn get_thumbnail(file_id: String, state: State<'_, AppState>) -> Result<Option<String>> {
+    if let Some(cached) = state.thumbnails.lock().unwrap().get(&file_id) {
+        return Ok(cached);
+    }
+    let file = state
+        .db
+        .get_file_by_id(&file_id)?
+        .ok_or_else(|| SiftError::PathNotFound(format!("File with id {} not found", file_id)))?;
+    let path = file.path.clone();
+    let thumb = tauri::async_runtime::spawn_blocking(move || {
+        sift_core::image_thumbnail_data_url(Path::new(&path), 192)
+    })
+    .await
+    .map_err(|e| SiftError::Internal(format!("thumbnail task failed: {}", e)))?;
+    state
+        .thumbnails
+        .lock()
+        .unwrap()
+        .insert(file_id, thumb.clone());
+    Ok(thumb)
+}

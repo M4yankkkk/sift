@@ -4,7 +4,6 @@ import {
   ExternalLink,
   FolderOpen,
   FileQuestion,
-  Sparkles,
   FileText,
   Image as ImageIcon,
   Binary,
@@ -17,6 +16,13 @@ import {
 } from "lucide-react";
 import { SiftAPI } from "../services/tauriClient";
 import { SyntaxHighlighter } from "./SyntaxHighlighter";
+import { matchLabel } from "./ResultsList";
+
+const formatSize = (bytes: number) => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
 
 interface PreviewPanelProps {
   item: SearchResultItem | null;
@@ -77,6 +83,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
   };
 
   const ext = item.extension.toLowerCase();
+  const match = matchLabel(item);
   const isImage =
     preview?.mime_type?.startsWith("image/") ||
     preview?.preview_content?.startsWith("data:image/") ||
@@ -357,85 +364,63 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
 
   return (
     <div className="preview-container">
-      {/* Top Header */}
+      {/* Header: name and facts on the left, actions on the right; nothing wraps */}
       <div className="preview-topbar">
         <div className="preview-file-info">
-          <div className="preview-title" title={item.filename}>
+          <div className="preview-title" title={item.path}>
             {item.filename}
           </div>
           <div className="preview-chips">
-            <span>{(item.size_bytes / 1024).toFixed(1)} KB</span>
-            <span>•</span>
+            <span>{formatSize(item.size_bytes)}</span>
+            <span className="preview-chip-sep">·</span>
             <span style={{ textTransform: "uppercase" }}>{item.extension}</span>
-            <span>•</span>
-            <span>{new Date(item.modified_at).toLocaleDateString()}</span>
+            <span className="preview-chip-sep">·</span>
+            <span>{new Date(item.modified_at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</span>
           </div>
         </div>
 
-        {/* Action Buttons */}
         <div className="preview-action-group">
-          <button
-            className={`btn-copy ${copiedPath ? "copied" : ""}`}
-            onClick={handleCopyPath}
-            title="Copy absolute file path (Ctrl+C)"
-          >
-            {copiedPath ? <Check size={13} /> : <Copy size={13} />}
-            <span>{copiedPath ? "Copied" : "Path"}</span>
+          <button className="icon-btn" onClick={handleCopyPath} title={copiedPath ? "Copied" : "Copy path"}>
+            {copiedPath ? <Check size={14} /> : <Copy size={14} />}
           </button>
-          <button
-            className="btn-reveal"
-            onClick={handleReveal}
-            title="Reveal in file manager (Ctrl+R)"
-          >
-            <FolderOpen size={13} />
-            <span>Reveal</span>
+          <button className="icon-btn" onClick={handleReveal} title="Reveal in file manager (Ctrl+R)">
+            <FolderOpen size={14} />
           </button>
-          <button
-            className="btn-reveal"
-            onClick={handleTerminal}
-            title="Open folder in terminal (Ctrl+T)"
-          >
-            <Terminal size={13} />
-            <span>Terminal</span>
+          <button className="icon-btn" onClick={handleTerminal} title="Open terminal here (Ctrl+T)">
+            <Terminal size={14} />
           </button>
           <button
             className="btn-open"
             onClick={handleOpen}
             title={
               isPdf && (preview?.page_number || item.page_number)
-                ? `Open PDF at Page ${preview?.page_number || item.page_number} (Enter)`
-                : "Open file with default system application (Enter)"
+                ? `Open PDF at page ${preview?.page_number || item.page_number} (Enter)`
+                : "Open with default application (Enter)"
             }
           >
             <ExternalLink size={13} />
             <span>
               {isPdf && (preview?.page_number || item.page_number)
-                ? `Open Page ${preview?.page_number || item.page_number}`
+                ? `Open p. ${preview?.page_number || item.page_number}`
                 : "Open"}
             </span>
           </button>
         </div>
       </div>
 
-      {/* Matched Snippet & Context Callout */}
-      {(item.snippet || (item.match_reasons && item.match_reasons.length > 0)) && (
-        <div className="matched-snippet-callout">
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4, fontWeight: 600 }}>
-            <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-              <Sparkles size={12} color={item.match_type === "semantic" ? "var(--accent-emerald)" : "var(--accent-violet-light)"} />
-              <span>{item.match_type === "semantic" ? "Neural Relevance Match:" : "Matched Context:"}</span>
+      {/* Why this matched: one plain line, then the matched text */}
+      {(item.match_reasons.length > 0 || item.snippet) && (
+        <div className="match-why">
+          <div className="match-why-line">
+            <span className={`badge-tag ${match.className}`}>
+              {match.icon}
+              <span>{match.label}</span>
             </span>
-            {item.match_reasons && item.match_reasons.length > 0 && (
-              <span style={{ fontSize: 10, color: item.match_type === "semantic" ? "var(--accent-emerald)" : "var(--accent-violet-light)", fontWeight: 500 }}>
-                {item.match_reasons[0]}
-              </span>
-            )}
+            <span className="match-why-reasons">{item.match_reasons.join(" · ")}</span>
           </div>
-          {item.snippet && (
-            <div
-              style={{ fontFamily: "var(--font-mono)", fontSize: 11.5 }}
-              dangerouslySetInnerHTML={{ __html: item.snippet }}
-            />
+          {item.snippet && !item.snippet.startsWith("Visual contents match") && (
+            // Snippets arrive HTML-escaped from sift-core; only <b> highlights are markup.
+            <div className="match-why-snippet" dangerouslySetInnerHTML={{ __html: item.snippet }} />
           )}
         </div>
       )}

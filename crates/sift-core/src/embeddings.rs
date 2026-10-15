@@ -72,6 +72,17 @@ pub trait EmbeddingEngine: Send + Sync {
     fn relevance_profile(&self) -> crate::ranking::RelevanceProfile {
         crate::ranking::RelevanceProfile::CLIP_GEMMA1
     }
+
+    /// Frees model memory after `idle` without use; the next call reloads it. Engines that can't
+    /// unload return `false`.
+    fn release_if_idle(&self, _idle: std::time::Duration) -> bool {
+        false
+    }
+
+    /// Whether model weights are currently resident in memory.
+    fn is_loaded(&self) -> bool {
+        true
+    }
 }
 
 /// Computes the cosine similarity between two normalized vectors.
@@ -485,6 +496,14 @@ impl EmbeddingEngine for EmbeddingGemma2Engine {
 
     fn relevance_profile(&self) -> crate::ranking::RelevanceProfile {
         crate::gemma2::RELEVANCE_PROFILE
+    }
+
+    fn release_if_idle(&self, idle: std::time::Duration) -> bool {
+        self.model.release_if_idle(idle)
+    }
+
+    fn is_loaded(&self) -> bool {
+        self.model.is_loaded()
     }
 }
 

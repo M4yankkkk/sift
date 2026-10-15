@@ -15,7 +15,9 @@ use ndarray::{Array2, Array3};
 use ort::session::Session;
 use ort::value::Value;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokenizers::{Tokenizer, TruncationParams};
 
 pub const REPO: &str = "onnx-community/embeddinggemma-2-ONNX";
@@ -107,7 +109,11 @@ const IMAGE_TOKEN: i64 = 258_880;
 const EOI: i64 = 258_882;
 
 pub struct EmbeddingGemma2 {
-    text: Mutex<Session>,
+    /// Text model; `None` after [`EmbeddingGemma2::release_if_idle`] freed it, reloaded on use.
+    text_path: PathBuf,
+    text: Mutex<Option<Session>>,
+    /// Unix seconds of the last inference, for idle unloading.
+    last_used: AtomicU64,
     /// Downloaded vision encoder, loaded on the first image: searches only embed text queries, so
     /// an idle app never pays for it.
     vision_path: Option<PathBuf>,
@@ -141,15 +147,51 @@ impl EmbeddingGemma2 {
             .map_err(|e| internal("configure tokenizer truncation", e))?;
         tokenizer.with_padding(None);
 
-        let text = Mutex::new(session(&text_path, intra_threads)?);
+        let text = Mutex::new(Some(session(&text_path, intra_threads)?));
         Ok(Self {
+            text_path,
             text,
+            last_used: AtomicU64::new(now_secs()),
             vision_path,
             vision: Mutex::new(None),
             tokenizer,
             vision_budget: config.vision_budget,
             intra_threads,
         })
+    }
+
+    /// Frees the model sessions when nothing has used them for `idle`. Search memory drops from
+    /// ~480 MB to the index alone; the next query reloads the model (~0.6 s). Returns whether
+    /// anything was released. Never blocks: a session in use is simply skipped.
+    pub fn release_if_idle(&self, idle: Duration) -> bool {
+        if now_secs().saturating_sub(self.last_used.load(Ordering::Relaxed)) < idle.as_secs() {
+            return false;
+        }
+        let mut released = false;
+        if let Ok(mut text) = self.text.try_lock() {
+            released |= text.take().is_some();
+        }
+        if let Ok(mut vision) = self.vision.try_lock() {
+            released |= vision.take().is_some();
+        }
+        if released {
+            // glibc keeps freed heap pages reserved; hand them back so idle RSS actually drops.
+            #[cfg(all(target_os = "linux", target_env = "gnu"))]
+            unsafe {
+                libc::malloc_trim(0);
+            }
+            tracing::info!("Released idle EmbeddingGemma 2 sessions");
+        }
+        released
+    }
+
+    /// Whether the text model is currently resident.
+    pub fn is_loaded(&self) -> bool {
+        self.text.try_lock().map(|t| t.is_some()).unwrap_or(true)
+    }
+
+    fn touch(&self) {
+        self.last_used.store(now_secs(), Ordering::Relaxed);
     }
 
     pub fn has_vision(&self) -> bool {
@@ -200,6 +242,7 @@ impl EmbeddingGemma2 {
         let prepared = preprocess_image(&img, self.vision_budget)?;
 
         let features = {
+            self.touch();
             let mut guard = self.vision.lock().unwrap();
             if guard.is_none() {
                 *guard = Some(session(vision_path, self.intra_threads)?);
@@ -252,7 +295,13 @@ impl EmbeddingGemma2 {
         image_features: Array2<f32>,
     ) -> Result<Vec<Vec<f32>>> {
         let batch = ids.nrows();
-        let mut session = self.text.lock().unwrap();
+        self.touch();
+        let mut guard = self.text.lock().unwrap();
+        if guard.is_none() {
+            tracing::info!("Reloading EmbeddingGemma 2 text model after idle release");
+            *guard = Some(session(&self.text_path, self.intra_threads)?);
+        }
+        let session = guard.as_mut().expect("text session just loaded");
         let outputs = session
             .run(ort::inputs![
                 "input_ids" => Value::from_array(ids).map_err(|e| internal("ids tensor", e))?,
@@ -274,6 +323,13 @@ impl EmbeddingGemma2 {
         }
         Ok(result)
     }
+}
+
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn internal(what: &str, e: impl std::fmt::Display) -> SiftError {

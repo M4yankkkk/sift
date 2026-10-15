@@ -20,6 +20,8 @@ export const App: React.FC = () => {
   const [showPreview, setShowPreview] = useState(true);
   const [results, setResults] = useState<SearchResultItem[]>([]);
   const [modeCounts, setModeCounts] = useState<Partial<ModeCounts> | null>(null);
+  const [searchMs, setSearchMs] = useState<number | null>(null);
+  const [gridColumns, setGridColumns] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -98,6 +100,7 @@ export const App: React.FC = () => {
           return;
         }
         setResults(resp.results);
+        setSearchMs(resp.execution_time_ms);
         setModeCounts(resp.mode_counts ?? { filename: resp.results.length });
         if (resp.results.length > 0) {
           setSelectedId(resp.results[0].id);
@@ -267,27 +270,48 @@ export const App: React.FC = () => {
         return;
       }
 
-      // Navigation through results (Arrows or Ctrl+N / Ctrl+P)
+      // Navigation through results (Arrows or Ctrl+N / Ctrl+P). In the Visual grid, ↑/↓ move by
+      // row and ←/→ by tile — but only while the caret sits at the end of the query, so the arrow
+      // keys still edit text normally.
       if (results.length > 0) {
         const currentIndex = results.findIndex((r) => r.id === selectedId);
+        const isGrid = activeFilter === "visual";
+        const rowStep = isGrid ? gridColumns : 1;
+        const input = document.activeElement as HTMLInputElement | null;
+        const caretAtEnd =
+          !input ||
+          input.tagName !== "INPUT" ||
+          (input.selectionStart === input.value.length && input.selectionEnd === input.value.length);
+        const move = (delta: number, wrap: boolean) => {
+          e.preventDefault();
+          let next = currentIndex + delta;
+          if (wrap) {
+            next = (next + results.length) % results.length;
+          } else {
+            next = Math.min(Math.max(next, 0), results.length - 1);
+          }
+          setSelectedId(results[next].id);
+        };
 
-        if (e.key === "ArrowDown" || (e.ctrlKey && e.key.toLowerCase() === "n")) {
-          e.preventDefault();
-          const nextIndex =
-            currentIndex < results.length - 1 ? currentIndex + 1 : 0;
-          setSelectedId(results[nextIndex].id);
-        } else if (e.key === "ArrowUp" || (e.ctrlKey && e.key.toLowerCase() === "p")) {
-          e.preventDefault();
-          const prevIndex =
-            currentIndex > 0 ? currentIndex - 1 : results.length - 1;
-          setSelectedId(results[prevIndex].id);
+        if (e.key === "ArrowDown") {
+          move(rowStep, !isGrid);
+        } else if (e.key === "ArrowUp") {
+          move(-rowStep, !isGrid);
+        } else if (e.ctrlKey && e.key.toLowerCase() === "n") {
+          move(1, true);
+        } else if (e.ctrlKey && e.key.toLowerCase() === "p") {
+          move(-1, true);
+        } else if (isGrid && caretAtEnd && !e.shiftKey && !e.ctrlKey && e.key === "ArrowRight") {
+          move(1, false);
+        } else if (isGrid && caretAtEnd && !e.shiftKey && !e.ctrlKey && e.key === "ArrowLeft") {
+          move(-1, false);
         }
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [results, selectedId, selectedItem, isFoldersOpen, isSettingsOpen, query]);
+  }, [results, selectedId, selectedItem, isFoldersOpen, isSettingsOpen, query, activeFilter, gridColumns]);
 
   return (
     <div className="floating-window">
@@ -313,6 +337,10 @@ export const App: React.FC = () => {
           isLoading={isSearching && results.length === 0}
           withPreview={showPreview}
           query={query}
+          executionMs={searchMs}
+          grid={activeFilter === "visual"}
+          onGridColumnsChange={setGridColumns}
+          onExampleQuery={setQuery}
         />
 
         {showPreview && (

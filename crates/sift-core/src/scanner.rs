@@ -200,6 +200,26 @@ pub fn get_image_mime(ext: &str) -> Option<&'static str> {
     }
 }
 
+/// Small JPEG thumbnail as a `data:` URL, for result lists and the image grid. `None` for formats
+/// the decoder can't read (SVG, AVIF) or images too large to decode cheaply.
+pub fn image_thumbnail_data_url(path: &Path, max_side: u32) -> Option<String> {
+    let (w, h) = image::ImageReader::open(path)
+        .ok()?
+        .with_guessed_format()
+        .ok()?
+        .into_dimensions()
+        .ok()?;
+    if (w as u64) * (h as u64) > 80_000_000 {
+        return None;
+    }
+    let thumb = image::open(path).ok()?.thumbnail(max_side, max_side).to_rgb8();
+    let mut jpeg = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 80)
+        .encode_image(&thumb)
+        .ok()?;
+    Some(format!("data:image/jpeg;base64,{}", base64_encode(&jpeg)))
+}
+
 pub fn render_pdf_page(path: &Path, page: u32) -> Option<String> {
     use std::process::Command;
     let page_str = page.max(1).to_string();

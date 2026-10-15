@@ -5,6 +5,7 @@ pub mod extract;
 pub mod indexing;
 pub mod ipc;
 pub mod jobs;
+pub mod resources;
 pub mod scanner;
 pub mod search;
 pub mod storage;
@@ -97,7 +98,9 @@ pub fn run() {
             open_in_terminal,
             get_settings,
             set_settings,
-            hide_window
+            hide_window,
+            get_resource_usage,
+            get_thumbnail
         ])
 
         .run(tauri::generate_context!())

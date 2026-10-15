@@ -20,7 +20,8 @@ pub use extract::{extract_document_chunks, DocumentChunk};
 pub use models::*;
 pub use ocr::{extract_image_ocr, is_ocr_available, is_ocr_supported_extension};
 pub use scanner::{
-    extract_pdf_page_preview, extract_pdf_preview, read_file_metadata, read_file_preview,
+    extract_pdf_page_preview, extract_pdf_preview, image_thumbnail_data_url, read_file_metadata,
+    read_file_preview,
     render_pdf_first_page, render_pdf_page, scan_directory, FileMeta, PathRuleChecker,
 };
 pub use storage::Database;
