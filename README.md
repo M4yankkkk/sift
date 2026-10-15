@@ -62,7 +62,9 @@ Each query runs four retrievers once, then fuses them:
 
 **Noise control.** Theme assets, icon sprites, and tiny images rank lower. OCR fragments without real words are left out of meaning search, though keyword search still covers them. Identical copies collapse into one result marked "+N identical copies elsewhere".
 
-The filter chips (`All · Filename · Content · Visual`) show how many results each mode has for the current query.
+The filter chips (`All · Filename · Content · Visual`) show how many results each mode has for the current query. Visual mode shows a thumbnail grid.
+
+Click the status line in the footer to see Sift's live memory and CPU use. Memory covers the whole app, including the WebKit interface processes, and is measured as PSS so shared memory isn't counted twice.
 
 ## Measured performance
 
@@ -71,7 +73,8 @@ All numbers below are from one laptop: Intel i7-13620H (10 cores), 16 GB RAM, Ub
 | | |
 | :--- | :--- |
 | Search latency (release build) | **72–92 ms** per query, all four retrievers, fused |
-| Search core memory (models loaded, idle) | **≈480 MB** resident |
+| Search core memory, model loaded | **≈480 MB** |
+| Search core memory after 5 idle minutes (model released) | **≈140 MB**; the next search reloads it in ≈0.6 s |
 | Peak memory while indexing a 1,300-page PDF | ≈0.95 GB |
 | Image indexing (one-time) | ≈0.6 s per image on 8 threads |
 | Model download (first run) | ≈435 MB (q8 text model + q4 vision encoder) |
