@@ -425,9 +425,8 @@ impl Database {
                         .optional()?;
 
                     let mut needs_indexing = true;
-                    let file_id: String;
 
-                    match existing_opt {
+                    let file_id = match existing_opt {
                         Some((existing_id, existing_fp, is_deleted)) => {
                             if is_deleted == 0 && existing_fp == file.fingerprint {
                                 // Fingerprint matches exactly! The file has not changed on disk.
@@ -472,7 +471,7 @@ impl Database {
                                     now_str,
                                 ])?;
                             }
-                            file_id = existing_id;
+                            existing_id
                         }
                         None => {
                             let new_id = Uuid::new_v4().to_string();
@@ -488,9 +487,9 @@ impl Database {
                                 file.fingerprint,
                                 now_str,
                             ])?;
-                            file_id = new_id;
+                            new_id
                         }
-                    }
+                    };
 
                     if needs_indexing {
                         file_records_to_index.push((

@@ -116,10 +116,8 @@ pub fn serialize_vector(v: &[f32]) -> Vec<u8> {
 
 /// Deserializes an f32 vector from a little-endian byte array.
 pub fn deserialize_vector(bytes: &[u8]) -> Vec<f32> {
-    bytes
-        .chunks_exact(4)
-        .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()))
-        .collect()
+    let (chunks, _) = bytes.as_chunks::<4>();
+    chunks.iter().map(|c| f32::from_le_bytes(*c)).collect()
 }
 
 /// Supported image extensions for vision semantic embeddings.
