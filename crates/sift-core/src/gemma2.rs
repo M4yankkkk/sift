@@ -356,6 +356,107 @@ fn session(path: &Path, intra_threads: usize) -> Result<Session> {
         .map_err(|e| internal(&what, e))
 }
 
+/// Every file the model needs for `config`, in download order (small first).
+pub fn required_files(config: &Gemma2Config) -> Vec<String> {
+    let mut files = vec![TOKENIZER_FILE.to_string()];
+    files.extend(config.text_precision.files("model"));
+    if config.with_vision {
+        files.extend(config.vision_precision.files("vision_encoder"));
+    }
+    files
+}
+
+/// Whether every model file is already in the local cache. Never touches the network.
+pub fn is_cached(cache_dir: &Path, config: &Gemma2Config) -> bool {
+    let repo = hf_hub::Cache::new(cache_dir.to_path_buf()).model(REPO.to_string());
+    required_files(config).iter().all(|f| repo.get(f).is_some())
+}
+
+/// Live state of the first-run model download.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct DownloadProgress {
+    pub downloaded_bytes: u64,
+    pub total_bytes: u64,
+    /// File currently downloading.
+    pub file: String,
+    pub files_done: usize,
+    pub files_total: usize,
+}
+
+/// Downloads every missing model file into the Hugging Face cache under `cache_dir`, reporting
+/// byte-level progress across all files. Interrupted downloads resume from their partial file,
+/// and transient network errors are retried with backoff.
+pub fn download(
+    cache_dir: &Path,
+    config: &Gemma2Config,
+    on_progress: &mut dyn FnMut(&DownloadProgress),
+) -> Result<()> {
+    let api = hf_hub::api::sync::ApiBuilder::new()
+        .with_cache_dir(cache_dir.to_path_buf())
+        .with_progress(false)
+        .with_retries(5)
+        .build()
+        .map_err(|e| internal("init model download", e))?;
+    let repo = api.model(REPO.to_string());
+    let cache = hf_hub::Cache::new(cache_dir.to_path_buf()).model(REPO.to_string());
+
+    let missing: Vec<String> = required_files(config)
+        .into_iter()
+        .filter(|f| cache.get(f).is_none())
+        .collect();
+    // Sizes up front so the progress bar covers the whole download, not one file at a time.
+    let mut sizes = Vec::with_capacity(missing.len());
+    for file in &missing {
+        let meta = api
+            .metadata(&repo.url(file))
+            .map_err(|e| internal(&format!("look up {}", file), e))?;
+        sizes.push(meta.size() as u64);
+    }
+
+    let mut state = DownloadProgress {
+        total_bytes: sizes.iter().sum(),
+        files_total: missing.len(),
+        ..Default::default()
+    };
+    on_progress(&state);
+
+    for (file, size) in missing.iter().zip(&sizes) {
+        state.file = file.clone();
+        let base = state.downloaded_bytes;
+        let reporter = ProgressReporter {
+            base,
+            in_file: 0,
+            state: &mut state,
+            on_progress: &mut *on_progress,
+        };
+        repo.download_with_progress(file, reporter)
+            .map_err(|e| internal(&format!("download {}", file), e))?;
+        state.downloaded_bytes = base + size;
+        state.files_done += 1;
+        on_progress(&state);
+    }
+    Ok(())
+}
+
+struct ProgressReporter<'a> {
+    base: u64,
+    in_file: u64,
+    state: &'a mut DownloadProgress,
+    on_progress: &'a mut dyn FnMut(&DownloadProgress),
+}
+
+impl hf_hub::api::Progress for ProgressReporter<'_> {
+    fn init(&mut self, _size: usize, _filename: &str) {}
+
+    fn update(&mut self, size: usize) {
+        self.in_file += size as u64;
+        self.state.downloaded_bytes = self.base + self.in_file;
+        (self.on_progress)(self.state);
+    }
+
+    fn finish(&mut self) {}
+}
+
 /// Downloads `files` from [`REPO`] into the Hugging Face cache under `cache_dir`, returning the
 /// local path of the first one. Companion files (ONNX external data) land beside it.
 fn fetch(cache_dir: &Path, files: &[&str]) -> Result<PathBuf> {

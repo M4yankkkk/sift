@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import type { IndexStatus, ResourceUsage } from "../types/contract";
+import type { IndexStatus, ModelStatus, ResourceUsage } from "../types/contract";
 import { FolderCheck, Sliders, RefreshCw, Cpu, MemoryStick, Sparkles, Database } from "lucide-react";
 import { SiftBrandmark } from "./SiftLogo";
 import { SiftAPI } from "../services/tauriClient";
@@ -15,7 +15,30 @@ interface StatusBarProps {
   onTogglePreview: () => void;
   onOpenActionMenu?: () => void;
   isActionMenuOpen?: boolean;
+  modelStatus?: ModelStatus | null;
+  onRetryModel?: () => void;
 }
+
+/** Status-bar text and progress for first-run model setup; `null` once the model is ready. */
+export const modelSetupLine = (m: ModelStatus | null | undefined) => {
+  if (!m) return null;
+  switch (m.state) {
+    case "checking":
+      return { text: "Preparing search model…", progress: null as number | null };
+    case "downloading": {
+      const pct = m.total_bytes > 0 ? m.downloaded_bytes / m.total_bytes : 0;
+      const speed = m.bytes_per_sec > 0 ? ` · ${(m.bytes_per_sec / 1048576).toFixed(1)} MB/s` : "";
+      return {
+        text: `Downloading search model · ${formatMb(m.downloaded_bytes / 1048576)} / ${formatMb(m.total_bytes / 1048576)}${speed}`,
+        progress: pct,
+      };
+    }
+    case "loading":
+      return { text: "Loading search model…", progress: null };
+    default:
+      return null;
+  }
+};
 
 /** "Upgrading search model: 1200 / 4968 files" → 0.24 */
 const progressOf = (op: string | null | undefined): number | null => {
@@ -119,8 +142,12 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   onTogglePreview,
   onOpenActionMenu,
   isActionMenuOpen,
+  modelStatus,
+  onRetryModel,
 }) => {
   const [showUsage, setShowUsage] = useState(false);
+  const setup = modelSetupLine(modelStatus);
+  const modelFailed = modelStatus?.state === "failed";
   const [usage, setUsage] = useState<ResourceUsage | null>(null);
   const isBusy = status?.is_indexing || status?.is_scanning;
 
@@ -142,7 +169,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
       document.removeEventListener("visibilitychange", tick);
     };
   }, []);
-  const progress = isBusy ? progressOf(status?.current_operation) : null;
+  const progress = setup ? setup.progress : isBusy ? progressOf(status?.current_operation) : null;
 
   return (
     <footer className="action-bar">
@@ -159,9 +186,13 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           <SiftBrandmark size={11} style={{ opacity: 0.9 }} />
           <span className={`indicator-dot ${isBusy ? "active" : ""}`} />
           <span className="status-text">
-            {isBusy
-              ? status?.current_operation || "Indexing…"
-              : `${(status?.files_indexed ?? 0).toLocaleString()} files`}
+            {setup
+              ? setup.text
+              : modelFailed
+                ? "Meaning search unavailable"
+                : isBusy
+                  ? status?.current_operation || "Indexing…"
+                  : `${(status?.files_indexed ?? 0).toLocaleString()} files`}
           </span>
           {usage && usage.memory_mb > 0 && (
             <span className="status-usage">
@@ -180,6 +211,15 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         >
           <RefreshCw size={11} className={isBusy ? "spin" : ""} />
         </button>
+        {modelFailed && onRetryModel && (
+          <button
+            className="status-retry-btn"
+            onClick={onRetryModel}
+            title={modelStatus?.state === "failed" ? modelStatus.message : undefined}
+          >
+            Retry download
+          </button>
+        )}
         {showUsage && <ResourcePopover status={status} onClose={() => setShowUsage(false)} />}
       </div>
 

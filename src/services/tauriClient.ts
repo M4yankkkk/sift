@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  ModelStatus,
   ResourceUsage,
   RootFolder,
   IndexStatus,
@@ -139,6 +140,16 @@ export const SiftAPI = {
   getThumbnail: async (fileId: string): Promise<string | null> => {
     if (!isTauriEnvironment()) return null;
     return invoke<string | null>("get_thumbnail", { fileId });
+  },
+
+  getModelStatus: async (): Promise<ModelStatus> => {
+    if (!isTauriEnvironment()) return { state: "ready", model: "mock" };
+    return invoke<ModelStatus>("get_model_status");
+  },
+
+  retryModelSetup: async (): Promise<void> => {
+    if (!isTauriEnvironment()) return;
+    return invoke<void>("retry_model_setup");
   },
 
   getResourceUsage: async (): Promise<ResourceUsage> => {

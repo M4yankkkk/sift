@@ -12,6 +12,7 @@ import type {
   PreviewResponse,
   IndexStatus,
   ModeCounts,
+  ModelStatus,
 } from "./types/contract";
 
 export const App: React.FC = () => {
@@ -21,6 +22,7 @@ export const App: React.FC = () => {
   const [results, setResults] = useState<SearchResultItem[]>([]);
   const [modeCounts, setModeCounts] = useState<Partial<ModeCounts> | null>(null);
   const [searchMs, setSearchMs] = useState<number | null>(null);
+  const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
   const [gridColumns, setGridColumns] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
@@ -57,6 +59,32 @@ export const App: React.FC = () => {
     const interval = setInterval(fetchStatus, 4000);
     return () => clearInterval(interval);
   }, [fetchStatus]);
+
+  // First-run model setup: initial state, then live `model-status` events.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    SiftAPI.getModelStatus()
+      .then((s) => !cancelled && setModelStatus(s))
+      .catch(() => {});
+    import("@tauri-apps/api/event")
+      .then(({ listen }) =>
+        listen<ModelStatus>("model-status", (e) => setModelStatus(e.payload)).then((u) => {
+          if (cancelled) u();
+          else unlisten = u;
+        })
+      )
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, []);
+
+  const retryModelSetup = useCallback(() => {
+    setModelStatus({ state: "checking" });
+    SiftAPI.retryModelSetup().catch(() => {});
+  }, []);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -341,6 +369,8 @@ export const App: React.FC = () => {
           grid={activeFilter === "visual"}
           onGridColumnsChange={setGridColumns}
           onExampleQuery={setQuery}
+          modelStatus={modelStatus}
+          onRetryModel={retryModelSetup}
         />
 
         {showPreview && (
@@ -365,6 +395,8 @@ export const App: React.FC = () => {
         onTogglePreview={() => setShowPreview((prev) => !prev)}
         onOpenActionMenu={() => setIsActionMenuOpen((prev) => !prev)}
         isActionMenuOpen={isActionMenuOpen}
+        modelStatus={modelStatus}
+        onRetryModel={retryModelSetup}
       />
 
       {/* Quick Action Palette Modal (Ctrl+K) */}

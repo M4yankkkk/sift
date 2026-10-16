@@ -88,7 +88,9 @@ fn live_index_search_quality() {
 
     let db = Database::open(&db_copy)
         .expect("open copy")
-        .with_embedding_engine(Some(create_default_embedding_engine()));
+        .with_embedding_engine(Some(
+            create_default_embedding_engine().expect("load embedding model"),
+        ));
     // Warm the models so the first case's latency is not model loading.
     let _ = db.search("warmup", 5);
 

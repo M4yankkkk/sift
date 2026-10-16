@@ -231,7 +231,7 @@ fn test_phase5_graceful_degradation_when_ml_disabled() {
 
     // Initialize database WITHOUT embedding engine (ml_enabled: false)
     let db = Database::open_in_memory().expect("open db");
-    assert!(db.embedding_engine.is_none());
+    assert!(db.embedding_engine().is_none());
 
     let root = db.add_root(dir.path().to_str().unwrap()).expect("add root");
     let files = scan_directory(dir.path(), &[]).expect("scan");

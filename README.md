@@ -82,22 +82,31 @@ Model correctness: Sift's Rust port of the EmbeddingGemma 2 image pipeline repro
 
 ## Install
 
-Requirements: Linux with X11 or Wayland (tested on Ubuntu 24.04 / GNOME), Rust (stable), Node.js 20+.
+### Ubuntu / Debian (.deb, ~19 MB)
+
+Download `Sift_<version>_amd64.deb` from [Releases](https://github.com/M4yankkkk/sift/releases), then:
 
 ```bash
-# WebKitGTK for the UI, Tesseract for OCR, poppler for PDFs
-sudo apt install -y build-essential libssl-dev librsvg2-dev libwebkit2gtk-4.1-dev \
-                    libayatana-appindicator3-dev tesseract-ocr tesseract-ocr-eng poppler-utils
-
-git clone https://github.com/M4yankkkk/sift.git
-cd sift
-npm install
-
-npm run tauri dev       # run in development
-./scripts/install.sh    # or: build a release, install the .deb, enable autostart and a Super+Space shortcut on GNOME
+sudo apt install ./Sift_0.1.0_amd64.deb
 ```
 
-On first launch, add folders to index (for example `~/Documents` and `~/Downloads`). Sift downloads EmbeddingGemma 2 once, indexes in the background with progress in the status bar, and then follows file changes live.
+`apt` pulls in everything Sift needs (WebKitGTK, Tesseract for OCR, poppler for PDFs). Launch **Sift** from your app menu, or run `sift`.
+
+**First launch.** The window opens right away and filename, keyword, and text-in-image search work immediately. Meanwhile Sift downloads the EmbeddingGemma 2 model once (≈435 MB) with live progress in the status bar. An interrupted download resumes where it stopped, and if you're offline, Sift tells you and offers **Retry**. When the download finishes, meaning search switches on and Sift embeds your files in the background. After that, it never needs the network.
+
+Add folders to index from the footer (**Folders**, or `Ctrl+Shift+F`), for example `~/Documents` and `~/Downloads`.
+
+### From source
+
+```bash
+git clone https://github.com/M4yankkkk/sift.git && cd sift
+./scripts/setup-dev.sh     # GTK/WebKit dev libraries, Tesseract, poppler (Ubuntu/Debian)
+npm install
+npm run tauri dev          # run in development
+npm run tauri build        # or build the .deb yourself: target/release/bundle/deb/
+```
+
+`./scripts/install.sh` builds and installs the `.deb`, then sets up autostart and a `Super+Space` shortcut on GNOME.
 
 ## Keyboard
 

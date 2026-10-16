@@ -118,3 +118,19 @@ export interface ResourceUsage {
   processes: number;
   model_loaded: boolean;
 }
+
+/** First-run search model setup, pushed by the backend as `model-status` events. */
+export type ModelStatus =
+  | { state: "checking" }
+  | {
+      state: "downloading";
+      downloaded_bytes: number;
+      total_bytes: number;
+      bytes_per_sec: number;
+      files_done: number;
+      files_total: number;
+    }
+  | { state: "loading" }
+  | { state: "ready"; model: string }
+  | { state: "disabled" }
+  | { state: "failed"; message: string };

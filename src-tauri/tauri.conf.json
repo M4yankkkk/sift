@@ -1,6 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Sift",
+  "mainBinaryName": "sift",
   "version": "0.1.0",
   "identifier": "com.sift.app",
   "build": {
@@ -27,7 +28,6 @@
         "transparent": true
       }
     ],
-
     "security": {
       "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-src 'none'",
       "devCsp": null
@@ -35,7 +35,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "deb"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -44,15 +46,22 @@
       "icons/icon.ico"
     ],
     "category": "Utility",
-    "shortDescription": "Offline-first desktop search engine for Linux",
-    "longDescription": "Sift is an offline-first, keyboard-driven desktop search application for Linux capable of finding files by filename, exact content, OCR text, and multimodal neural embeddings.",
+    "shortDescription": "Find files on Linux by what's in them",
+    "longDescription": "Sift is a keyboard-first launcher that searches photos, screenshots, PDFs, notes and code by meaning, exact text, and the text inside images, entirely on your machine. On first launch it downloads Google DeepMind's EmbeddingGemma 2 model once (about 435 MB).",
     "linux": {
       "deb": {
         "depends": [
           "libwebkit2gtk-4.1-0",
-          "libayatana-appindicator3-1"
+          "libayatana-appindicator3-1",
+          "tesseract-ocr",
+          "tesseract-ocr-eng",
+          "poppler-utils"
         ]
       }
-    }
+    },
+    "publisher": "Mayank Tiwari",
+    "homepage": "https://github.com/M4yankkkk/sift",
+    "license": "MIT",
+    "copyright": "© 2026 Mayank Tiwari"
   }
 }

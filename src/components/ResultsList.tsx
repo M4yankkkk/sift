@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { SearchResultItem } from "../types/contract";
+import type { ModelStatus, SearchResultItem } from "../types/contract";
 import {
   FileText,
   FileCode,
@@ -31,7 +31,56 @@ interface ResultsListProps {
   /** Reports how many grid columns fit, so arrow keys can move by row. */
   onGridColumnsChange?: (columns: number) => void;
   onExampleQuery?: (query: string) => void;
+  modelStatus?: ModelStatus | null;
+  onRetryModel?: () => void;
 }
+
+/** First-run card: what works now, and how far the search model download is. */
+const ModelSetupCard: React.FC<{ status: ModelStatus; onRetry?: () => void }> = ({ status, onRetry }) => {
+  if (status.state === "ready" || status.state === "disabled") return null;
+  if (status.state === "failed") {
+    return (
+      <div className="setup-card setup-card-failed">
+        <div className="setup-card-title">Meaning search couldn't be set up</div>
+        <div className="setup-card-desc">{status.message}</div>
+        <div className="setup-card-desc">Filename, keyword, and text-in-image search still work.</div>
+        {onRetry && (
+          <button className="setup-card-btn" onClick={onRetry}>
+            Retry download
+          </button>
+        )}
+      </div>
+    );
+  }
+  const pct =
+    status.state === "downloading" && status.total_bytes > 0
+      ? Math.round((status.downloaded_bytes / status.total_bytes) * 100)
+      : null;
+  const mb = (b: number) => Math.round(b / 1048576);
+  return (
+    <div className="setup-card">
+      <div className="setup-card-title">
+        {status.state === "loading" ? "Loading the search model…" : "Setting up meaning search"}
+        {pct !== null && <span className="setup-card-pct">{pct}%</span>}
+      </div>
+      <div className="setup-card-track">
+        <div
+          className={`setup-card-fill ${pct === null ? "indeterminate" : ""}`}
+          style={pct === null ? undefined : { transform: `scaleX(${pct / 100})` }}
+        />
+      </div>
+      <div className="setup-card-desc">
+        {status.state === "downloading"
+          ? `One-time download of EmbeddingGemma 2 · ${mb(status.downloaded_bytes)} / ${mb(status.total_bytes)} MB`
+          : "One-time setup of EmbeddingGemma 2"}
+        . Filename, keyword, and text-in-image search already work.
+      </div>
+    </div>
+  );
+};
+
+const modelNotReady = (m: ModelStatus | null | undefined) =>
+  !!m && m.state !== "ready" && m.state !== "disabled";
 
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif", "bmp"]);
 const isImageExt = (ext: string) => IMAGE_EXTENSIONS.has(ext.toLowerCase());
@@ -168,6 +217,8 @@ export const ResultsList: React.FC<ResultsListProps> = ({
   grid = false,
   onGridColumnsChange,
   onExampleQuery,
+  modelStatus,
+  onRetryModel,
 }) => {
   const selectedItemRef = useRef<HTMLDivElement | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
@@ -209,6 +260,7 @@ export const ResultsList: React.FC<ResultsListProps> = ({
     return (
       <div className={containerClass}>
         <div className="empty-state">
+          {modelStatus && <ModelSetupCard status={modelStatus} onRetry={onRetryModel} />}
           <Compass size={30} className="empty-state-icon" />
           <div className="empty-title">Search by what's in your files</div>
           <div className="empty-desc">
@@ -269,6 +321,9 @@ export const ResultsList: React.FC<ResultsListProps> = ({
       <span className="results-count-badge">
         {results.length} {results.length === 1 ? "result" : "results"}
         {executionMs != null && <span className="results-timing"> · {Math.round(executionMs)} ms</span>}
+        {modelNotReady(modelStatus) && (
+          <span className="results-timing"> · meaning search is still setting up</span>
+        )}
       </span>
     </div>
   );

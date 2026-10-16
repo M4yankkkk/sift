@@ -1923,3 +1923,94 @@ html, body {
 .status-usage svg:not(:first-child) {
   margin-left: 5px;
 }
+
+/* ---------- First-run model setup ---------- */
+.setup-card {
+  width: 100%;
+  max-width: 420px;
+  margin-bottom: 22px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-medium);
+  text-align: left;
+}
+
+.setup-card-failed {
+  border-color: rgba(244, 63, 94, 0.35);
+}
+
+.setup-card-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.setup-card-pct {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.setup-card-track {
+  height: 4px;
+  margin: 9px 0 8px;
+  border-radius: 999px;
+  background: var(--bg-surface-hover);
+  overflow: hidden;
+}
+
+.setup-card-fill {
+  height: 100%;
+  background: var(--accent-violet-light);
+  transform-origin: left center;
+  transition: transform 300ms linear;
+}
+
+.setup-card-fill.indeterminate {
+  width: 35%;
+  animation: setup-indeterminate 1.2s ease-in-out infinite;
+}
+
+@keyframes setup-indeterminate {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(300%); }
+}
+
+.setup-card-desc {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.setup-card-btn,
+.status-retry-btn {
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #fff;
+  background: var(--accent-violet);
+  border: none;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: background-color 150ms ease, transform 160ms var(--ease-out);
+}
+
+.setup-card-btn {
+  margin-top: 10px;
+  padding: 5px 12px;
+}
+
+.status-retry-btn {
+  padding: 2px 8px;
+  flex-shrink: 0;
+}
+
+.setup-card-btn:active,
+.status-retry-btn:active {
+  transform: scale(0.97);
+}

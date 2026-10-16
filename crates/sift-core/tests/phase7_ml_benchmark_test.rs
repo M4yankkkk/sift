@@ -93,7 +93,7 @@ fn evaluate_retrieval(
                 v
             }
             "semantic" => {
-                let engine = db.embedding_engine.as_ref().unwrap();
+                let engine = db.embedding_engine().unwrap();
                 let q_vec = engine.embed_query(&q.query).unwrap_or_default();
                 let v_hits = db
                     .search_vectors_by_modality(&q_vec, 10, None)

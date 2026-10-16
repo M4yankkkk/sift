@@ -107,10 +107,8 @@ pub(crate) fn spawn_scan_worker(
             // Resumable; a rescan request pauses it so new files are indexed first.
             if db.count_stale_embedding_files().unwrap_or(0) > 0 {
                 let result = db.reembed_stale(|done, total| {
-                    *current_op.lock().unwrap() = Some(format!(
-                        "Upgrading search model: {} / {} files",
-                        done, total
-                    ));
+                    *current_op.lock().unwrap() =
+                        Some(format!("Building search index: {} / {} files", done, total));
                     !needs_rescan.load(Ordering::SeqCst)
                 });
                 match result {
@@ -533,6 +531,11 @@ pub async fn set_settings(
     let old_settings = state.db.get_settings().unwrap_or_default();
     state.db.save_settings(&settings)?;
 
+    // Turning meaning search back on: fetch/load the model if it isn't attached yet.
+    if settings.ml_enabled && !old_settings.ml_enabled {
+        crate::model::start(app.clone());
+    }
+
     if old_settings.global_shortcut != settings.global_shortcut {
         use tauri_plugin_global_shortcut::GlobalShortcutExt;
         let _ = app
@@ -571,8 +574,7 @@ pub async fn get_resource_usage(
 ) -> Result<crate::resources::ResourceUsage> {
     let model_loaded = state
         .db
-        .embedding_engine
-        .as_ref()
+        .embedding_engine()
         .map(|e| e.is_loaded())
         .unwrap_or(false);
     Ok(state.cpu_sampler.sample(model_loaded))
@@ -600,4 +602,16 @@ pub async fn get_thumbnail(file_id: String, state: State<'_, AppState>) -> Resul
         .unwrap()
         .insert(file_id, thumb.clone());
     Ok(thumb)
+}
+
+#[tauri::command]
+pub async fn get_model_status(state: State<'_, AppState>) -> Result<crate::model::ModelStatus> {
+    Ok(state.model_status.lock().unwrap().clone())
+}
+
+/// Restarts first-run model setup after a failed download.
+#[tauri::command]
+pub async fn retry_model_setup(app: tauri::AppHandle) -> Result<()> {
+    crate::model::start(app);
+    Ok(())
 }

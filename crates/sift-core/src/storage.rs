@@ -45,7 +45,9 @@ pub fn safe_truncate_str(s: &str, max_bytes: usize) -> String {
 pub struct Database {
     conn: Arc<Mutex<Connection>>,
     pub text_index: Option<Arc<TantivySearchIndex>>,
-    pub embedding_engine: Option<Arc<dyn crate::embeddings::EmbeddingEngine>>,
+    /// Set at most once: the app starts without a model and attaches it after the first-run
+    /// download finishes. Shared across clones.
+    embedding_engine: Arc<std::sync::OnceLock<Arc<dyn crate::embeddings::EmbeddingEngine>>>,
 }
 
 impl Database {
@@ -72,7 +74,7 @@ impl Database {
         let db = Self {
             conn: Arc::new(Mutex::new(conn)),
             text_index,
-            embedding_engine: None,
+            embedding_engine: Default::default(),
         };
         db.init_schema()?;
         Ok(db)
@@ -91,7 +93,7 @@ impl Database {
         let db = Self {
             conn: Arc::new(Mutex::new(conn)),
             text_index,
-            embedding_engine: None,
+            embedding_engine: Default::default(),
         };
         db.init_schema()?;
         Ok(db)
@@ -106,8 +108,26 @@ impl Database {
         mut self,
         embedding_engine: Option<Arc<dyn crate::embeddings::EmbeddingEngine>>,
     ) -> Self {
-        self.embedding_engine = embedding_engine;
+        let slot = std::sync::OnceLock::new();
+        if let Some(engine) = embedding_engine {
+            let _ = slot.set(engine);
+        }
+        self.embedding_engine = Arc::new(slot);
         self
+    }
+
+    /// The active embedding engine, once one has been attached.
+    pub fn embedding_engine(&self) -> Option<&Arc<dyn crate::embeddings::EmbeddingEngine>> {
+        self.embedding_engine.get()
+    }
+
+    /// Attaches the engine after startup (e.g. when the first-run model download completes).
+    /// Returns `false` if an engine was already attached.
+    pub fn set_embedding_engine(
+        &self,
+        engine: Arc<dyn crate::embeddings::EmbeddingEngine>,
+    ) -> bool {
+        self.embedding_engine.set(engine).is_ok()
     }
 
     /// Clears all files, chunks, OCR data, embeddings, and Tantivy index documents,
@@ -212,6 +232,25 @@ impl Database {
             "CREATE INDEX IF NOT EXISTS idx_embeddings_model ON chunk_embeddings(model)",
             [],
         )?;
+
+        // Which model last processed each file, even when it yielded no vectors (an unreadable
+        // PDF, an empty note). Files indexed before a model was available stay pending.
+        let has_embedded_model = conn
+            .prepare("SELECT 1 FROM pragma_table_info('files') WHERE name = 'embedded_model'")?
+            .exists([])?;
+        if !has_embedded_model {
+            conn.execute("ALTER TABLE files ADD COLUMN embedded_model TEXT", [])?;
+            // Existing indexes: credit files with the model their stored vectors came from.
+            conn.execute(
+                r#"
+                UPDATE files SET embedded_model = (
+                    SELECT e.model FROM chunk_embeddings e
+                    WHERE e.file_id = files.id AND e.model IS NOT NULL LIMIT 1
+                )
+                "#,
+                [],
+            )?;
+        }
 
         Ok(())
     }
@@ -481,10 +520,16 @@ impl Database {
 
         let settings = self.get_settings().unwrap_or_default();
         let is_eco = settings.resource_mode == crate::models::ResourceMode::Eco;
-        let embeddings_on = settings.ml_enabled && self.embedding_engine.is_some();
+        let embeddings_on = settings.ml_enabled && self.embedding_engine().is_some();
 
         // Ingest and index document chunks into Tantivy and vector embeddings
+        let active_model = if embeddings_on {
+            self.current_model().map(str::to_string)
+        } else {
+            None
+        };
         for (path, filename, extension, id) in file_records_to_index {
+            self.set_embedded_model(&id, active_model.as_deref());
             let is_image = crate::embeddings::is_image_supported_for_vision(&extension);
             let is_ocr = crate::ocr::is_ocr_supported_extension(&extension);
 
@@ -583,20 +628,19 @@ impl Database {
     }
 
     fn relevance(&self) -> ranking::RelevanceProfile {
-        self.embedding_engine
-            .as_ref()
+        self.embedding_engine()
             .map(|e| e.relevance_profile())
             .unwrap_or_default()
     }
 
     fn current_model(&self) -> Option<&str> {
-        self.embedding_engine.as_ref().map(|e| e.model_name())
+        self.embedding_engine().map(|e| e.model_name())
     }
 
     /// Replaces a file's image vector with a fresh one from the active engine.
     fn store_image_embedding(&self, file_id: &str, path: &str, filename: &str) -> Result<()> {
-        let engine = match self.embedding_engine {
-            Some(ref e) => e,
+        let engine = match self.embedding_engine() {
+            Some(e) => e,
             None => return Ok(()),
         };
         let vector = engine.embed_image(Path::new(path))?;
@@ -631,8 +675,8 @@ impl Database {
         modality: &str,
         chunks: &[crate::extract::DocumentChunk],
     ) {
-        let engine = match self.embedding_engine {
-            Some(ref e) => e,
+        let engine = match self.embedding_engine() {
+            Some(e) => e,
             None => return,
         };
         let contents: Vec<String> = chunks.iter().map(|c| c.content.clone()).collect();
@@ -671,26 +715,59 @@ impl Database {
         }
     }
 
-    /// Number of files whose vectors were produced by a different model than the active engine.
+    fn set_embedded_model(&self, file_id: &str, model: Option<&str>) {
+        let conn = self.conn.lock().unwrap();
+        let _ = conn.execute(
+            "UPDATE files SET embedded_model = ?2 WHERE id = ?1",
+            params![file_id, model],
+        );
+    }
+
+    /// Files the active model still has to process: anything embedded by another model, plus
+    /// files indexed while no model was available (e.g. during the first-run download).
+    /// Images come first. Returns `(id, path, filename, extension)`.
+    fn pending_embedding_files(
+        &self,
+        model: &str,
+    ) -> Result<Vec<(String, String, String, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, path, filename, extension FROM files
+            WHERE is_deleted = 0 AND size_bytes > 0
+              AND (embedded_model IS NULL OR embedded_model != ?1)
+            ORDER BY path
+            "#,
+        )?;
+        let rows = stmt.query_map(params![model], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })?;
+        let mut files: Vec<(String, String, String, String)> = rows
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter(|(_, _, _, ext): &(String, String, String, String)| {
+                is_embeddable_extension(ext)
+            })
+            .collect();
+        files.sort_by_key(|(_, _, _, ext)| !crate::embeddings::is_image_supported_for_vision(ext));
+        Ok(files)
+    }
+
+    /// Number of files the active model still has to embed (see [`Self::reembed_stale`]).
     pub fn count_stale_embedding_files(&self) -> Result<usize> {
         let model = match self.current_model() {
             Some(m) => m.to_string(),
             None => return Ok(0),
         };
-        let conn = self.conn.lock().unwrap();
-        let n: i64 = conn.query_row(
-            r#"
-            SELECT COUNT(DISTINCT e.file_id) FROM chunk_embeddings e JOIN files f ON f.id = e.file_id
-            WHERE f.is_deleted = 0 AND (e.model IS NULL OR e.model != ?1)
-            "#,
-            params![model],
-            |r| r.get(0),
-        )?;
-        Ok(n as usize)
+        if !self.get_settings().map(|s| s.ml_enabled).unwrap_or(true) {
+            return Ok(0);
+        }
+        Ok(self.pending_embedding_files(&model)?.len())
     }
 
-    /// Re-embeds every file whose vectors came from another model (e.g. after upgrading to
-    /// EmbeddingGemma 2), images first. Stored OCR text is reused and document chunks are
+    /// Embeds every file the active model hasn't processed yet: files left by another model
+    /// (e.g. after upgrading to EmbeddingGemma 2) and files indexed before the model finished
+    /// downloading. Images first. Stored OCR text is reused and document chunks are
     /// re-extracted; keyword indexes are untouched. Progress is saved per file, so an interrupted
     /// run resumes where it stopped. `progress(done, total)` is called after each file; returning
     /// `false` stops early. Returns the number of files processed.
@@ -702,22 +779,7 @@ impl Database {
         if !self.get_settings().map(|s| s.ml_enabled).unwrap_or(true) {
             return Ok(0);
         }
-        let stale: Vec<(String, String, String, String)> = {
-            let conn = self.conn.lock().unwrap();
-            let mut stmt = conn.prepare(
-                r#"
-                SELECT f.id, f.path, f.filename, f.extension
-                FROM chunk_embeddings e JOIN files f ON f.id = e.file_id
-                WHERE f.is_deleted = 0 AND (e.model IS NULL OR e.model != ?1)
-                GROUP BY f.id
-                ORDER BY MAX(e.modality = 'image') DESC, f.path
-                "#,
-            )?;
-            let rows = stmt.query_map(params![model], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
-            })?;
-            rows.collect::<std::result::Result<_, _>>()?
-        };
+        let stale = self.pending_embedding_files(&model)?;
 
         let total = stale.len();
         let is_eco = self
@@ -758,8 +820,9 @@ impl Database {
                     );
                 }
             }
-            // Anything still from the old model could not be regenerated; drop it so it is not
-            // retried on every launch and never mixes with vectors from another space.
+            // Anything still from the old model could not be regenerated; drop it so it never
+            // mixes with vectors from another space. The file is now processed by this model
+            // either way, so it is not retried on every launch.
             {
                 let conn = self.conn.lock().unwrap();
                 conn.execute(
@@ -767,6 +830,7 @@ impl Database {
                     params![id, model],
                 )?;
             }
+            self.set_embedded_model(&id, Some(&model));
             if is_eco {
                 std::thread::sleep(std::time::Duration::from_millis(20));
             }
@@ -1062,8 +1126,8 @@ impl Database {
         };
 
         let ml_enabled = self.get_settings().map(|s| s.ml_enabled).unwrap_or(true);
-        let (text_semantic, images) = match self.embedding_engine {
-            Some(ref engine) if ml_enabled => {
+        let (text_semantic, images) = match self.embedding_engine() {
+            Some(engine) if ml_enabled => {
                 let query_vec = engine.embed_query(q).ok();
                 let text_semantic = match query_vec {
                     Some(ref v) => self.vector_search(v, MAX_SEMANTIC_HITS, Some(false), 0.0)?,
@@ -1470,6 +1534,13 @@ fn has_meaningful_words(text: &str) -> bool {
         .take(3)
         .count()
         >= 3
+}
+
+/// File types Sift can turn into vectors: photos/screenshots, PDFs, and text or code.
+fn is_embeddable_extension(extension: &str) -> bool {
+    crate::embeddings::is_image_supported_for_vision(extension)
+        || extension.eq_ignore_ascii_case("pdf")
+        || crate::extract::is_text_or_code_extension(extension)
 }
 
 fn document_modality(extension: &str) -> String {

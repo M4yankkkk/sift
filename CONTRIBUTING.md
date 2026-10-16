@@ -2,24 +2,27 @@
 
 Thanks for helping. Bug reports, search-quality reports, and pull requests are all welcome.
 
-## Development setup (Ubuntu 24.04)
+## Development setup (Ubuntu / Debian)
 
 ```bash
-sudo apt update && sudo apt install -y \
-  build-essential curl file libssl-dev librsvg2-dev \
-  libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
-  libayatana-appindicator3-dev \
-  tesseract-ocr tesseract-ocr-eng poppler-utils
-
-# Rust (stable) and Node.js 20+
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
 git clone https://github.com/M4yankkkk/sift.git && cd sift
-npm install
+./scripts/setup-dev.sh        # GTK/WebKit dev libraries, Tesseract, poppler
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # Rust (stable), if needed
+npm install                   # Node.js 20+
 npm run tauri dev
 ```
 
-The first launch downloads EmbeddingGemma 2 (≈435 MB) into `~/.cache/sift/models`.
+If linking fails with `unable to find library -lgtk-3` (or `-lwebkit2gtk-4.1`), the `-dev` packages are missing; rerun `./scripts/setup-dev.sh`.
+
+The first launch downloads EmbeddingGemma 2 (≈435 MB) into `~/.cache/sift/models`, with progress in the status bar.
+
+## Release build
+
+```bash
+npm run tauri build           # → target/release/bundle/deb/Sift_<version>_amd64.deb (~19 MB)
+```
+
+The package contains the app only; the model is downloaded on first launch.
 
 ## Project layout
 

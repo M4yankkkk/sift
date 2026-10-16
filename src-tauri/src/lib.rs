@@ -1,6 +1,7 @@
 pub mod app;
 pub mod commands;
 pub mod ipc;
+pub mod model;
 pub mod resources;
 pub mod tray;
 
@@ -28,10 +29,9 @@ pub fn run() {
             sift_data_dir.join("sift.db").to_string_lossy().to_string()
         }
     });
-    let embedding_engine = sift_core::create_default_embedding_engine();
-    let db = Database::open(&db_path)
-        .expect("Failed to initialize SQLite database")
-        .with_embedding_engine(Some(embedding_engine));
+    // The search model is attached later by `model::start`, so the window never waits on a
+    // first-run download.
+    let db = Database::open(&db_path).expect("Failed to initialize SQLite database");
 
     let app_state = AppState::new(db);
     let initial_shortcut = app_state
@@ -55,6 +55,9 @@ pub fn run() {
         )
         .manage(app_state)
         .setup(move |app| {
+            // Download (first run) and load the search model in the background
+            model::start(app.handle().clone());
+
             // Start Unix domain socket listener for instant desktop toggling (like Ulauncher)
             let handle = app.handle().clone();
             std::thread::spawn(move || {
@@ -102,7 +105,9 @@ pub fn run() {
             set_settings,
             hide_window,
             get_resource_usage,
-            get_thumbnail
+            get_thumbnail,
+            get_model_status,
+            retry_model_setup
         ])
         .run(tauri::generate_context!())
         .expect("error while running Sift tauri application");

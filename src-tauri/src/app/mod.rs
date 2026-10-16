@@ -46,6 +46,8 @@ pub struct AppState {
     pub needs_rescan: Arc<AtomicBool>,
     pub cpu_sampler: crate::resources::CpuSampler,
     pub thumbnails: Mutex<ThumbnailCache>,
+    pub model_status: Arc<Mutex<crate::model::ModelStatus>>,
+    pub model_worker_running: Arc<AtomicBool>,
 }
 
 impl AppState {
@@ -95,6 +97,8 @@ impl AppState {
             needs_rescan: needs_rescan.clone(),
             cpu_sampler: Default::default(),
             thumbnails: Default::default(),
+            model_status: Arc::new(Mutex::new(crate::model::ModelStatus::Checking)),
+            model_worker_running: Arc::new(AtomicBool::new(false)),
         };
 
         // Free the embedding model when Sift sits idle; the next search reloads it (~0.6 s).
@@ -107,7 +111,7 @@ impl AppState {
                 let busy =
                     is_scanning.load(Ordering::SeqCst) || queue_length.load(Ordering::Relaxed) > 0;
                 if !busy {
-                    if let Some(ref engine) = db.embedding_engine {
+                    if let Some(engine) = db.embedding_engine() {
                         engine.release_if_idle(MODEL_IDLE_RELEASE);
                     }
                 }

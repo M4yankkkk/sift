@@ -54,8 +54,9 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "downloads the ~435 MB EmbeddingGemma 2 model on first run"]
     fn test_create_engine() {
-        let engine = create_default_embedding_engine();
+        let engine = create_default_embedding_engine().expect("load model");
         assert!(engine.dimension() > 0);
         assert!(!engine.model_name().is_empty());
         let vec = engine.embed_text("sunset").unwrap();

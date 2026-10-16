@@ -30,7 +30,8 @@ if [ -n "$DEB_FILE" ]; then
     sudo apt install -y "$DEB_FILE"
 else
     echo -e "${YELLOW}==> Deb package not found. Installing standalone binary to /usr/local/bin/sift...${NC}"
-    RELEASE_BIN="$PROJECT_DIR/target/release/sift-tauri"
+    RELEASE_BIN="$PROJECT_DIR/target/release/sift"
+    [ -f "$RELEASE_BIN" ] || RELEASE_BIN="$PROJECT_DIR/target/release/sift-tauri"
     if [ ! -f "$RELEASE_BIN" ]; then
         cargo build --release --manifest-path "$PROJECT_DIR/src-tauri/Cargo.toml"
     fi

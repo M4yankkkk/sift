@@ -452,21 +452,45 @@ pub struct EmbeddingGemma2Engine {
 }
 
 impl EmbeddingGemma2Engine {
+    /// Loads the model from the local cache (downloading it silently if missing; the app uses
+    /// [`Self::download`] first so the user sees progress).
     pub fn try_new() -> Result<Self> {
         let cache_dir = get_sift_models_cache_dir();
         let _ = std::fs::create_dir_all(&cache_dir);
-        let threads = std::env::var("SIFT_EMBED_THREADS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or_else(default_embed_threads);
-        let config = crate::gemma2::Gemma2Config {
-            intra_threads: threads,
-            ..crate::gemma2::Gemma2Config::default()
-        };
         Ok(Self {
-            model: crate::gemma2::EmbeddingGemma2::load(&cache_dir, config)?,
+            model: crate::gemma2::EmbeddingGemma2::load(&cache_dir, gemma2_config())?,
         })
     }
+
+    /// Whether every model file is already on disk. Never touches the network.
+    pub fn is_downloaded() -> bool {
+        crate::gemma2::is_cached(&get_sift_models_cache_dir(), &gemma2_config())
+    }
+
+    /// Downloads the model files with live progress (resumable, retried on network errors).
+    pub fn download(on_progress: &mut dyn FnMut(&crate::gemma2::DownloadProgress)) -> Result<()> {
+        let cache_dir = get_sift_models_cache_dir();
+        std::fs::create_dir_all(&cache_dir)?;
+        crate::gemma2::download(&cache_dir, &gemma2_config(), on_progress)
+    }
+}
+
+fn gemma2_config() -> crate::gemma2::Gemma2Config {
+    let threads = std::env::var("SIFT_EMBED_THREADS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or_else(default_embed_threads);
+    crate::gemma2::Gemma2Config {
+        intra_threads: threads,
+        ..crate::gemma2::Gemma2Config::default()
+    }
+}
+
+/// `SIFT_EMBEDDING_MODEL=legacy` (or `gemma`, `gemma-q`, `gemma-q4`, `minilm`) selects the older
+/// fastembed text model + CLIP instead of EmbeddingGemma 2.
+pub fn wants_legacy_engine() -> bool {
+    let choice = std::env::var("SIFT_EMBEDDING_MODEL").unwrap_or_default();
+    !(choice.is_empty() || choice.eq_ignore_ascii_case("embeddinggemma-2"))
 }
 
 /// Half the logical cores (2..=8): fast enough for indexing without saturating the machine.
@@ -516,47 +540,24 @@ impl EmbeddingEngine for EmbeddingGemma2Engine {
     }
 }
 
-/// Creates the default local embedding engine.
-///
-/// `SIFT_EMBEDDING_MODEL`: unset/`embeddinggemma-2` → EmbeddingGemma 2 (text + images, one model);
-/// `legacy` (or `gemma`, `gemma-q`, `gemma-q4`, `minilm`) → fastembed text model + CLIP.
-/// Falls back to legacy, then to the offline mock, if a model cannot be loaded.
-pub fn create_default_embedding_engine() -> Arc<dyn EmbeddingEngine> {
-    let choice = std::env::var("SIFT_EMBEDDING_MODEL").unwrap_or_default();
-    if choice.is_empty() || choice.eq_ignore_ascii_case("embeddinggemma-2") {
-        match EmbeddingGemma2Engine::try_new() {
-            Ok(engine) => {
-                tracing::info!(
-                    model = engine.model_name(),
-                    "Initialized EmbeddingGemma 2 engine"
-                );
-                return Arc::new(engine);
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "EmbeddingGemma 2 unavailable ({}); falling back to legacy models",
-                    e
-                )
-            }
-        }
+/// Creates the configured local embedding engine: EmbeddingGemma 2 by default, or the legacy
+/// fastembed + CLIP pair when [`wants_legacy_engine`]. Errors instead of falling back, so a
+/// missing model is never silently replaced by something that returns meaningless vectors.
+pub fn create_default_embedding_engine() -> Result<Arc<dyn EmbeddingEngine>> {
+    if wants_legacy_engine() {
+        let engine = FastEmbedEngine::try_new()?;
+        tracing::info!(
+            model = engine.model_name(),
+            "Initialized legacy FastEmbed engine"
+        );
+        return Ok(Arc::new(engine));
     }
-    match FastEmbedEngine::try_new() {
-        Ok(engine) => {
-            tracing::info!(
-                "Initialized legacy FastEmbed engine (model: {}, dimension: {})",
-                engine.model_name(),
-                engine.dimension()
-            );
-            Arc::new(engine)
-        }
-        Err(e) => {
-            tracing::warn!(
-                "FastEmbed engine unavailable ({}); using offline deterministic mock encoder",
-                e
-            );
-            Arc::new(DeterministicMockEngine::new(768))
-        }
-    }
+    let engine = EmbeddingGemma2Engine::try_new()?;
+    tracing::info!(
+        model = engine.model_name(),
+        "Initialized EmbeddingGemma 2 engine"
+    );
+    Ok(Arc::new(engine))
 }
 
 #[cfg(test)]
