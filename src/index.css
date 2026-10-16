@@ -46,7 +46,10 @@
   --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* Shadows and Easing */
-  --shadow-window: 0 24px 64px -12px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  /* The window is a transparent rectangle the card fills edge to edge: a drop shadow would be
+     clipped at the window bounds (and many compositors/recorders don't keep alpha), so the card
+     uses only a hairline edge. */
+  --shadow-window: 0 0 0 1px rgba(255, 255, 255, 0.06);
   --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
   --shadow-glow: 0 0 20px -2px var(--accent-violet-glow);
   --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
@@ -75,7 +78,6 @@ html, body {
   width: 100vw;
   display: flex;
   box-sizing: border-box;
-  padding: 6px;
 }
 
 /* Custom Sleek Scrollbar */
@@ -107,7 +109,7 @@ html, body {
   background-color: var(--bg-canvas);
   background-image: radial-gradient(circle at 50% 0%, rgba(139, 92, 246, 0.08) 0%, transparent 65%);
   border: 1px solid var(--border-medium);
-  border-radius: 18px;
+  border-radius: 12px;
   overflow: hidden;
   position: relative;
   box-shadow: var(--shadow-window);
